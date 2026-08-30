@@ -1,0 +1,38 @@
+/**
+ * Theme-aware categorical palette for the usage dashboard's charts (T-1.18).
+ *
+ * Scoped as CSS custom properties on `.usage-chart-root` rather than added
+ * to the app-wide `--chart-*` tokens in `shared/styles/globals/theme.css`
+ * (those exist but are unreferenced anywhere in the app and are not part of
+ * this dashboard's contract). Values are the dataviz skill's validated
+ * default categorical order — chosen by running
+ * `scripts/validate_palette.js` against this app's actual light/dark card
+ * surfaces (`#eff1f5` / `#24273a`, from `--card` in theme.css): both modes
+ * pass every hard gate (lightness band, chroma floor, CVD separation,
+ * normal-vision floor) on the first 5 slots. Light mode WARNs on contrast
+ * (2 of 5 slots < 3:1 against the light card surface), which is why every
+ * chart usage pairs a swatch with a visible text label rather than color
+ * alone (the skill's "relief" requirement).
+ *
+ * Follows this app's actual dark-mode mechanism — a `.dark` ancestor class
+ * toggling CSS custom properties (see `theme.css`) — not `prefers-color-
+ * scheme`/`data-theme`, which this app does not use.
+ */
+
+.usage-chart-root {
+  --usage-series-1: #2a78d6; /* blue — sequential hue for the single-series time chart */
+  --usage-series-2: #eb6834; /* orange */
+  --usage-series-3: #1baf7a; /* aqua */
+  --usage-series-4: #eda100; /* yellow */
+  --usage-series-5: #e87ba4; /* magenta */
+  --usage-unknown-fill: transparent;
+  --usage-unknown-stroke: hsl(var(--muted-foreground));
+}
+
+.dark .usage-chart-root {
+  --usage-series-1: #3987e5;
+  --usage-series-2: #d95926;
+  --usage-series-3: #199e70;
+  --usage-series-4: #c98500;
+  --usage-series-5: #d55181;
+}

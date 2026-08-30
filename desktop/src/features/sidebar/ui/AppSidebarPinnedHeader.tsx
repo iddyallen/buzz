@@ -1,4 +1,4 @@
-import { Activity, Bot, Folders, Inbox, Zap } from "lucide-react";
+import { Activity, BarChart3, Bot, Folders, Inbox, Zap } from "lucide-react";
 
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import { SidebarProjectsSection } from "@/features/sidebar/ui/SidebarProjectsSection";
@@ -20,7 +20,8 @@ type SidebarSelectedView =
   | "agents"
   | "workflows"
   | "pulse"
-  | "projects";
+  | "projects"
+  | "usage";
 
 type AppSidebarPinnedHeaderProps = {
   channelLabels: Record<string, string>;
@@ -44,6 +45,7 @@ type AppSidebarPrimaryMenuProps = {
   onSelectHome: () => void;
   onSelectProjects: () => void;
   onSelectPulse: () => void;
+  onSelectUsage: () => void;
   onSelectWorkflows: () => void;
   projectsOverviewActive: boolean;
   selectedView: SidebarSelectedView;
@@ -94,6 +96,7 @@ export function AppSidebarPrimaryMenu({
   onSelectHome,
   onSelectProjects,
   onSelectPulse,
+  onSelectUsage,
   onSelectWorkflows,
   projectsOverviewActive,
   selectedView,
@@ -178,6 +181,20 @@ export function AppSidebarPrimaryMenu({
               >
                 <Zap className="h-4 w-4" />
                 <SidebarMenuLabel>Workflows</SidebarMenuLabel>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </FeatureGate>
+          <FeatureGate feature="usage">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                data-testid="open-usage-view"
+                isActive={selectedView === "usage"}
+                onClick={onSelectUsage}
+                tooltip="Usage"
+                type="button"
+              >
+                <BarChart3 className="h-4 w-4" />
+                <SidebarMenuLabel>Usage</SidebarMenuLabel>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </FeatureGate>
