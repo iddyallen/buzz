@@ -252,6 +252,22 @@ with a TypeScript lookup table or an id comparison in a component.
 
 15. **Databricks model discovery has one shared catalog authority.** Desktop and ACP call the shared `buzz-agent` discovery library; Desktop passes the effective merged `DATABRICKS_MODEL_FILTER` explicitly, and the library applies it to raw workspace endpoint IDs and Unity Catalog model-service FQNs after the additive union. A successful filtered-empty catalog is authoritative: it stays empty, disables switching, and never falls through to configured or known-model fallback. UC FQNs are catalog data and always use the MLflow Chat Completions route, regardless of family-looking text in their components.
 
+16. **OpenAI-compatible presets are provider-dropdown sugar, never a persisted
+    provider.** `ui/openaiCompatPresets.ts` is the single source of truth for the
+    Moonshot (Kimi) and DashScope (Qwen) convenience presets. A preset is not a
+    new engine provider — the buzz-agent engine only knows `openai-compat`
+    (`Provider::OpenAi`). A preset's synthetic dropdown id decodes to
+    `provider = "openai-compat"` plus an `OPENAI_COMPAT_BASE_URL` env patch at the
+    provider-change boundary (`selectionOnProviderDropdownChange` for the create/
+    edit dialogs, `AgentConfigFields.handleProviderChange` for defaults/onboarding),
+    and `openAiCompatPresetDropdownValue` reverse-maps a persisted
+    (`openai-compat`, base_url) pair back to the preset id for display. The preset
+    ids are never written as a provider and never sent to `BUZZ_AGENT_PROVIDER`.
+    Selecting plain "OpenAI-compatible (custom)" clears only a preset-managed
+    base_url, preserving a hand-typed endpoint. Add new presets to the catalog
+    array only; do not special-case a preset id in a component or persist one as a
+    provider. Enforced by `ui/openaiCompatPresets.test.mjs`.
+
 ## The tests that enforce this
 
 - `lib/agentConfigCore.test.mjs` — field model per harness × scope, clearing

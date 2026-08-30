@@ -64,6 +64,10 @@ import {
   selectionOnRuntimeChange,
   type RuntimeModelProviderSelection,
 } from "./runtimeModelProviderSelection";
+import {
+  OPENAI_COMPAT_BASE_URL_ENV,
+  openAiCompatPresetDropdownValue,
+} from "./openaiCompatPresets";
 import { AgentCreationPreview } from "./AgentCreationPreview";
 import { OwnerOnlyAccessField } from "./OwnerOnlyAccessField";
 import type { EnvVarsValue } from "./EnvVarsEditor";
@@ -824,7 +828,11 @@ export function AgentInstanceEditDialog({
   );
   const providerSelectValue = isCustomProviderEditing
     ? CUSTOM_PROVIDER_DROPDOWN_VALUE
-    : trimmedProvider || AUTO_PROVIDER_DROPDOWN_VALUE;
+    : (openAiCompatPresetDropdownValue(
+        trimmedProvider,
+        envVars[OPENAI_COMPAT_BASE_URL_ENV] ?? "",
+      ) ??
+      (trimmedProvider || AUTO_PROVIDER_DROPDOWN_VALUE));
   const providerDropdownOptions: PersonaDropdownOption[] = [
     ...providerOptions.map((option) => ({
       label:

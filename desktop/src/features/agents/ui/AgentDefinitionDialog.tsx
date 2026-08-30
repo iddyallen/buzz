@@ -63,6 +63,10 @@ import {
   type RuntimeModelProviderSelection,
 } from "./runtimeModelProviderSelection";
 import {
+  OPENAI_COMPAT_BASE_URL_ENV,
+  openAiCompatPresetDropdownValue,
+} from "./openaiCompatPresets";
+import {
   MODEL_DISCOVERY_LOADING_VALUE,
   usePersonaModelDiscovery,
 } from "./usePersonaModelDiscovery";
@@ -569,7 +573,11 @@ export function AgentDefinitionDialog({
   );
   const providerSelectValue = isCustomProviderEditing
     ? CUSTOM_PROVIDER_DROPDOWN_VALUE
-    : trimmedProvider || AUTO_PROVIDER_DROPDOWN_VALUE;
+    : (openAiCompatPresetDropdownValue(
+        trimmedProvider,
+        envVars[OPENAI_COMPAT_BASE_URL_ENV] ?? "",
+      ) ??
+      (trimmedProvider || AUTO_PROVIDER_DROPDOWN_VALUE));
   const showCustomProviderInput =
     llmProviderFieldVisible && isCustomProviderEditing;
   const runtimeDropdownValue = runtime.trim() || NO_RUNTIME_DROPDOWN_VALUE;

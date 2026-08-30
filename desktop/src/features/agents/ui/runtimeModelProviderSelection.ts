@@ -7,6 +7,11 @@ import {
   getProviderApiKeyEnvVar,
   shouldClearKnownModelForSelectionScope,
 } from "./agentConfigOptions";
+import {
+  decodeOpenAiCompatPresetSelection,
+  envVarsForProviderSelection,
+  OPENAI_COMPAT_PROVIDER_ID,
+} from "./openaiCompatPresets";
 import { shouldClearModelForRuntimeChange } from "./personaRuntimeModel";
 import {
   envVarsClearingManagedApiKey,
@@ -101,13 +106,21 @@ export function selectionOnProviderDropdownChange(
     return next;
   }
 
-  const nextProvider =
-    params.nextValue === AUTO_PROVIDER_DROPDOWN_VALUE ? "" : params.nextValue;
+  // OpenAI-compatible presets (Moonshot/Kimi, DashScope/Qwen) are synthetic
+  // dropdown values: decode them to the real `openai-compat` provider and let
+  // the base-url env patch below pre-fill OPENAI_COMPAT_BASE_URL.
+  const preset = decodeOpenAiCompatPresetSelection(params.nextValue);
+  const nextProvider = preset
+    ? OPENAI_COMPAT_PROVIDER_ID
+    : params.nextValue === AUTO_PROVIDER_DROPDOWN_VALUE
+      ? ""
+      : params.nextValue;
   next.envVars = envVarsClearingManagedApiKey(
     next.envVars,
     current.provider,
     nextProvider,
   );
+  next.envVars = envVarsForProviderSelection(next.envVars, params.nextValue);
   next.isCustomProviderEditing = false;
   next.provider = nextProvider;
 
