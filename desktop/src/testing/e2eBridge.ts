@@ -37,6 +37,7 @@ import {
 } from "@/shared/api/customEmoji";
 import {
   KIND_AGENT_OBSERVER_FRAME,
+  KIND_AGENT_TURN_METRIC,
   KIND_CHANNEL_THREAD_SUMMARY,
   KIND_CHANNEL_WINDOW_BOUNDS,
   KIND_DM_VISIBILITY,
@@ -512,6 +513,13 @@ type E2eConfig = {
       scope_value: string;
       kinds: string; // JSON-encoded integer array, e.g. "[9,40002]"
     }>;
+    // Rows returned by `read_archived_events` when the request's `kinds`
+    // includes 44200 (agent turn metric). Each entry is the DECRYPTED
+    // `AgentTurnMetricPayload` shape — the real archive stores kind-44200
+    // `raw_json` as the bare payload, not a full Nostr event (see
+    // `desktop/src/features/agents/lib/agentTurnUsage.ts`'s wire-shape note).
+    // Defaults to `[]` (no archived metrics) when unset.
+    archivedAgentTurnMetrics?: Array<Record<string, unknown>>;
     // Event IDs that `get_event` should report as definitively not found.
     // Causes `useDraftRootStatus` to classify as `deleted`.
     deletedEventIds?: string[];
@@ -14297,6 +14305,21 @@ export function maybeInstallE2eTauriMocks() {
       case "archive_events":
         // Returns the ArchiveBatchResult shape the UI expects.
         return { persisted: 0, dropped: 0 };
+      case "read_archived_events": {
+        // Only kind 44200 (agent turn metrics) has a real e2e consumer today
+        // (`useAgentTurnMetricsIndex`, gated behind an owner_p [44200] save
+        // subscription — which `useAgentMetricArchiveSeed` auto-creates for
+        // every identity via `merge_save_subscription_kinds` above, so this
+        // command WILL be invoked on any spec that mounts the full app).
+        // Every other kind returns an empty page until a spec needs it.
+        const req = payload as { kinds: number[] | null };
+        if (req.kinds?.includes(KIND_AGENT_TURN_METRIC)) {
+          return (activeConfig?.mock?.archivedAgentTurnMetrics ?? []).map(
+            (row) => JSON.stringify(row),
+          );
+        }
+        return [];
+      }
       // Archive sync runs natively; the bridge has no relay-backed backend to
       // drive, so these are accepted no-ops. Without them every AppShell mount
       // logs an unknown-command warning once the gate opens.

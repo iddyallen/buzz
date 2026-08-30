@@ -12,6 +12,11 @@ import {
 } from "@/features/agents/observerRelayStore";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { useAnchoredScroll } from "@/features/messages/ui/useAnchoredScroll";
+import {
+  resolveTurnMetric,
+  type WireAgentTurnMetricPayload,
+} from "@/features/agents/lib/agentTurnUsage";
+import { useAgentTurnMetricsIndex } from "@/features/agents/lib/useAgentTurnMetricsIndex";
 import { useStableArrayShallow } from "@/shared/hooks/useStableReference";
 import { cn } from "@/shared/lib/cn";
 import {
@@ -60,8 +65,13 @@ import { shouldShowTranscriptRowTimestamp } from "./agentSessionTranscriptPresen
 import { formatTranscriptTimestampTitle } from "./agentSessionUtils";
 import { hasFileEditLineDiff } from "./FileEditDiffView";
 import { UserMessageBubble } from "./activityRenderClasses/UserMessageBubble";
+import { TurnUsageBadge } from "./activityRenderClasses/TurnUsageBadge";
 
 const TRANSCRIPT_ACP_SOURCE_STORAGE_KEY = "buzz:show-transcript-acp-source";
+
+/** Stable empty map so compact-preview callers never re-render on identity change. */
+const EMPTY_TURN_USAGE_INDEX: ReadonlyMap<string, WireAgentTurnMetricPayload> =
+  new Map();
 
 const ROW_ENTER_SPRING = {
   damping: 38,
@@ -140,6 +150,13 @@ export function AgentSessionTranscriptList({
     () => isAgentTurnLive(activeTurns, channelId),
     [activeTurns, channelId],
   );
+
+  // Per-call (per-turn) token/cost usage, joined by turnId — see
+  // `useAgentTurnMetricsIndex` and `TurnUsageBadge`. Skipped in compact
+  // preview surfaces (sidebar/pulse cards) where the usage line would just be
+  // noise; those variants pass a smaller subset of transcript items anyway.
+  const isCompactPreviewVariant = variant === "compactPreview";
+  const turnUsageIndex = useAgentTurnMetricsIndex();
 
   // Subscribe to the observer relay store so we read the latest-live-session-id
   // reactively. We don't need the full snapshot — only the key for boundary labeling.
@@ -273,6 +290,11 @@ export function AgentSessionTranscriptList({
                     agentPubkey={agentPubkey}
                     block={block}
                     profiles={profiles}
+                    turnUsageIndex={
+                      isCompactPreviewVariant
+                        ? EMPTY_TURN_USAGE_INDEX
+                        : turnUsageIndex
+                    }
                   />
                 </div>
               </motion.div>
@@ -355,9 +377,11 @@ function TranscriptDisplayBlockView({
   agentPubkey,
   block,
   profiles,
+  turnUsageIndex,
 }: AgentTranscriptIdentityProps & {
   block: TranscriptDisplayBlock;
   profiles?: UserProfileLookup;
+  turnUsageIndex: ReadonlyMap<string, WireAgentTurnMetricPayload>;
 }) {
   const variant = useAgentSessionTranscriptVariant();
   const isCompactPreview = variant === "compactPreview";
@@ -418,6 +442,13 @@ function TranscriptDisplayBlockView({
           />
         </motion.div>
       ))}
+      {/* Per-call usage line (T-1.11/T-1.13): joined by turnId, not by
+          message — see TurnUsageBadge's doc comment. Placed once per turn,
+          after all of that turn's segments (which for a typical turn ends
+          with the agent's own message), rather than duplicated per-segment. */}
+      <TurnUsageBadge
+        metric={resolveTurnMetric(turnUsageIndex, block.turnId)}
+      />
     </div>
   );
 }
