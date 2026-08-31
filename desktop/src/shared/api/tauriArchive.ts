@@ -90,9 +90,16 @@ export type AgentUsageSeries = {
 export type AgentUsageSeriesRequest = {
   /**
    * Exact local-midnight Unix-second boundaries, inclusive start/exclusive
-   * end per adjacent pair. Exactly 8 entries (7 buckets) or 31 entries (30
-   * buckets) — build with the feature slice's DST-safe boundary helper,
-   * never `N * 86_400`.
+   * end per adjacent pair: N entries describe N-1 buckets. Build these with
+   * `boundariesForPeriod` / `buildLocalMidnightBoundaries`
+   * (`@/features/usage/lib/periodBoundaries`) — never `N * 86_400`, which
+   * drifts off local midnight across a DST transition.
+   *
+   * The Rust validator (`agent_usage.rs::validate_request`) accepts 2–367
+   * strictly-increasing boundaries with each adjacent interval <= 48h: 8
+   * entries (7 buckets) and 31 entries (30 buckets) are just two points on
+   * that range, not special cases — a custom period of any length up to 366
+   * days is equally valid.
    */
   bucketBoundaries: number[];
   /** Normalized 64-hex author filter for the profile drill-in, or omit for the overview. */
