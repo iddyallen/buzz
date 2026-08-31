@@ -281,8 +281,14 @@ fn install_acp_runtime_blocking(
     }
     let _guard = Guard(runtime_id.to_string());
 
-    let runtime = crate::managed_agents::known_acp_runtime_exact(runtime_id)
-        .ok_or_else(|| format!("unknown runtime: {runtime_id}"))?;
+    let runtime = match crate::managed_agents::known_acp_runtime_exact(runtime_id) {
+        Some(rt) => rt,
+        // Not a built-in runtime — a tier-2 preset (Qwen Code, DeepSeek
+        // Harness, …) with an npm install command it can run through the
+        // managed Node runtime. The concurrency guard, PATH refresh, and
+        // resolve-cache clear above already apply.
+        None => return install_preset_harness_blocking(runtime_id, app),
+    };
 
     let reporter = InstallReporter::for_run(app, runtime.id);
 
@@ -353,6 +359,70 @@ fn install_acp_runtime_blocking(
     }
 
     post_install_verification::run(runtime_id, &mut steps, &reporter);
+
+    Ok(InstallRuntimeResult {
+        success: steps.iter().all(|step| step.success),
+        steps,
+        restarted_count: 0,
+        failed_restart_count: 0,
+        log_path: reporter.log_path(),
+    })
+}
+
+/// Install a tier-2 preset harness (Qwen Code, DeepSeek Harness) by running its
+/// npm global-install command through the same managed-Node path the built-in
+/// npm adapters use, so the user does not need a system Node/npm.
+///
+/// Simpler than `install_acp_runtime_blocking`: presets have no separate
+/// vendor CLI + adapter split, no `post_install_verification` profile, and no
+/// setup-listener restart wiring (that keys off `known_acp_runtime`).
+fn install_preset_harness_blocking(
+    preset_id: &str,
+    app: &tauri::AppHandle,
+) -> Result<InstallRuntimeResult, String> {
+    let cmds = crate::managed_agents::preset_install_commands(preset_id);
+    if cmds.is_empty() {
+        return Err(format!(
+            "{preset_id} has no automatic install; follow its setup guide"
+        ));
+    }
+
+    let reporter = InstallReporter::for_run(app, preset_id);
+    let mut steps = Vec::new();
+
+    let use_managed_npm =
+        cmds.iter().any(|cmd| is_npm_global_install(cmd)) && managed_node_runtime_supported();
+    if use_managed_npm {
+        if let Err(step) = ensure_managed_node_runtime_blocking() {
+            reporter.record_step(&mut steps, *step);
+            return Ok(reporter.failed(steps));
+        }
+    }
+
+    for cmd in cmds {
+        let planned = if use_managed_npm {
+            match managed_npm_command(cmd) {
+                Ok(Some(command)) => command,
+                Ok(None) => cmd.to_string(),
+                Err(step) => {
+                    reporter.record_step(&mut steps, *step);
+                    return Ok(reporter.failed(steps));
+                }
+            }
+        } else {
+            cmd.to_string()
+        };
+
+        let mut result = run_install_command_with_retry("cli", &planned, &reporter);
+        if !result.success && result.hint.is_none() && is_npm_global_install(cmd) {
+            result.hint = npm_eacces_hint(&result.stderr, cmd);
+        }
+        let success = result.success;
+        steps.push(result);
+        if !success {
+            return Ok(reporter.failed(steps));
+        }
+    }
 
     Ok(InstallRuntimeResult {
         success: steps.iter().all(|step| step.success),

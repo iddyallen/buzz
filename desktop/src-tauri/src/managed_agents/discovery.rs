@@ -23,7 +23,7 @@ pub(crate) use login_shell::{
 };
 pub(crate) use presets::{
     canonical_harness_command, command_for_runtime_id, preset_harness_definitions,
-    preset_harness_ids,
+    preset_harness_ids, preset_install_commands,
 };
 use presets::{preset_catalog_entry, PRESET_HARNESSES};
 pub(crate) use runtime_metadata::KnownAcpRuntime;

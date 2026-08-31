@@ -72,7 +72,7 @@ pub(super) fn preset_catalog_entry(
         max_rounds_env_var: None,
         install_hint: def.install_hint.to_string(),
         install_instructions_url: def.install_instructions_url.to_string(),
-        can_auto_install: false,
+        can_auto_install: !preset_install_commands(def.id).is_empty(),
         // Presets carry one flat install hint, so builtin external-CLI copy
         // would name the wrong missing component for adapter presets.
         requires_external_cli: false,
@@ -257,6 +257,19 @@ pub(crate) fn command_for_runtime_id(id: &str) -> Option<String> {
             crate::managed_agents::custom_harnesses::lookup_loaded_harness_by_id(id)
                 .map(|d| d.command.clone())
         })
+}
+
+/// npm global-install command(s) Buzz can run for a tier-2 preset through its
+/// managed Node runtime, so "Install" works without a vendor installer.
+///
+/// Empty for presets whose CLI ships its own installer (or none) — those keep
+/// the docs-link-only "Setup guide" affordance.
+pub(crate) fn preset_install_commands(id: &str) -> &'static [&'static str] {
+    match id {
+        "qwen" => &["npm install -g @qwen-code/qwen-code"],
+        "deepseek-harness" => &["npm install -g @deepseek-ai/dsh"],
+        _ => &[],
+    }
 }
 
 /// Resolve a harness to its canonical command accepting either a runtime id or
@@ -495,5 +508,34 @@ mod tests {
             entry.max_parallelism, None,
             "uncapped preset (devin) must have max_parallelism: None"
         );
+    }
+
+    #[test]
+    fn npm_backed_presets_advertise_auto_install() {
+        use super::preset_install_commands;
+
+        assert_eq!(
+            preset_install_commands("qwen"),
+            &["npm install -g @qwen-code/qwen-code"]
+        );
+        assert_eq!(
+            preset_install_commands("deepseek-harness"),
+            &["npm install -g @deepseek-ai/dsh"]
+        );
+        assert!(preset_install_commands("devin").is_empty());
+
+        for id in ["qwen", "deepseek-harness"] {
+            let def = PRESET_HARNESSES
+                .iter()
+                .find(|p| p.id == id)
+                .unwrap_or_else(|| panic!("{id} preset must be present"));
+            assert!(
+                preset_catalog_entry(def, |_| None).can_auto_install,
+                "{id} must advertise can_auto_install"
+            );
+        }
+
+        let devin = PRESET_HARNESSES.iter().find(|p| p.id == "devin").unwrap();
+        assert!(!preset_catalog_entry(devin, |_| None).can_auto_install);
     }
 }
