@@ -309,6 +309,28 @@ pub struct ChannelFilesResponse {
     pub files: Vec<ChannelFileInfo>,
 }
 
+/// NIP-KB `kind:40110` Kanban card, flattened for the desktop board view.
+/// One entry per live card — the newest version per `d`, tombstones dropped.
+#[derive(Serialize, Deserialize)]
+pub struct KanbanCardInfo {
+    pub event_id: String,
+    pub pubkey: String,
+    pub card_id: String,
+    pub column: String,
+    pub position: f64,
+    pub title: String,
+    pub description: String,
+    pub assignee: Option<String>,
+    pub source_event_id: Option<String>,
+    pub created_at: i64,
+    pub channel_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct KanbanCardsResponse {
+    pub cards: Vec<KanbanCardInfo>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct ForumThreadReplyInfo {
     pub event_id: String,

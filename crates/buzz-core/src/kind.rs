@@ -493,6 +493,18 @@ pub const KIND_STREAM_REMINDER: u32 = 40007;
 pub const KIND_STREAM_MESSAGE_DIFF: u32 = 40008;
 /// Canvas (shared document) for a channel.
 pub const KIND_CANVAS: u32 = 40100;
+/// NIP-KB: Kanban card — channel-scoped task card (regular stored event).
+///
+/// A card is a `kind:40110` event scoped to a channel by an `h` tag and
+/// identified by a stable `d` tag (card UUID). It is **not** a replaceable
+/// kind: every create / edit / move is a fresh event, and clients keep only
+/// the highest `created_at` per `d` (last-write-wins across all authors). A
+/// card is retracted by a `["deleted", "true"]` tag on a newer version or by
+/// an ordinary NIP-09 `kind:5`. Columns are the fixed set `todo` / `doing` /
+/// `done`; ordering within a column is a fractional `pos` tag so a drag
+/// rewrites only the moved card. See `docs/nips/NIP-KB.md` and
+/// [`crate::kanban`].
+pub const KIND_KANBAN_CARD: u32 = 40110;
 /// System message for channel state changes (join, leave, rename, etc.).
 pub const KIND_SYSTEM_MESSAGE: u32 = 40099;
 
@@ -708,6 +720,7 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_STREAM_REMINDER,
     KIND_STREAM_MESSAGE_DIFF,
     KIND_CANVAS,
+    KIND_KANBAN_CARD,
     KIND_SYSTEM_MESSAGE,
     KIND_CHANNEL_SUMMARY,
     KIND_PRESENCE_SNAPSHOT,
@@ -885,6 +898,13 @@ const _: () = assert!(!is_ephemeral(KIND_AGENT_TURN_METRIC));
 const _: () = assert!(!is_replaceable(KIND_AGENT_TURN_METRIC));
 const _: () = assert!(!is_parameterized_replaceable(KIND_AGENT_TURN_METRIC));
 const _: () = assert!(KIND_AGENT_TURN_METRIC <= u16::MAX as u32);
+// Compile-time: KIND_KANBAN_CARD is a regular stored channel-content kind —
+// not ephemeral, not replaceable, not parameterized-replaceable (LWW is a
+// client-side convention over `d`, not relay replacement).
+const _: () = assert!(!is_ephemeral(KIND_KANBAN_CARD));
+const _: () = assert!(!is_replaceable(KIND_KANBAN_CARD));
+const _: () = assert!(!is_parameterized_replaceable(KIND_KANBAN_CARD));
+const _: () = assert!(KIND_KANBAN_CARD <= u16::MAX as u32);
 // Moderation kinds fit u16 and are neither replaceable nor ephemeral:
 // 1984 is a regular event (persisted to the queue, never fanned out);
 // 9040–9044 are direct commands (executed, never stored).

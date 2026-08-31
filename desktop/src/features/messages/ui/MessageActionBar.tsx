@@ -11,6 +11,7 @@ import {
   MailOpen,
   Pencil,
   SmilePlus,
+  SquareKanban,
   Trash2,
 } from "lucide-react";
 import * as React from "react";
@@ -20,6 +21,7 @@ import { buildMessageLink } from "@/features/messages/lib/messageLink";
 import { EmojiPicker } from "@/features/custom-emoji/ui/EmojiPicker";
 import { useCustomEmoji } from "@/features/custom-emoji/hooks";
 import { getThreadReference } from "@/features/messages/lib/threading";
+import { emitCreateCardFromMessage } from "@/features/kanban/lib/createFromMessageBus";
 import { ReportMessageDialog } from "@/features/moderation/ui/ReportMessageDialog";
 import { MessageModerationMenuItems } from "@/features/moderation/ui/MessageModerationMenuItems";
 import type {
@@ -277,6 +279,21 @@ function MoreActionsMenu({
             >
               <Link2 className="h-4 w-4" />
               Copy link
+            </DropdownMenuItem>
+          ) : null}
+
+          {canCopyMessageLink(message, channelId) ? (
+            <DropdownMenuItem
+              data-testid={`add-to-board-${message.id}`}
+              onClick={() => {
+                emitCreateCardFromMessage({
+                  channelId,
+                  messageId: message.id,
+                });
+              }}
+            >
+              <SquareKanban className="h-4 w-4" />
+              Add to board
             </DropdownMenuItem>
           ) : null}
 

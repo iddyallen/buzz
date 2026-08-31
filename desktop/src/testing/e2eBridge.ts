@@ -3200,6 +3200,31 @@ type MockSaveSubscriptionRow = {
 };
 let mockSaveSubscriptions: MockSaveSubscriptionRow[] = [];
 
+/**
+ * NIP-KB Kanban board — in-memory card store for the mock bridge. Keyed by
+ * channel id, then by card id (`d`). Only the latest version per card is kept,
+ * mirroring the relay-side last-write-wins merge the desktop command performs.
+ */
+type MockKanbanCard = {
+  event_id: string;
+  pubkey: string;
+  card_id: string;
+  column: string;
+  position: number;
+  title: string;
+  description: string;
+  assignee: string | null;
+  source_event_id: string | null;
+  created_at: number;
+  channel_id: string;
+  deleted: boolean;
+};
+let mockKanbanCards: Map<string, Map<string, MockKanbanCard>> = new Map();
+
+function resetMockKanbanCards() {
+  mockKanbanCards = new Map();
+}
+
 type MockObservedUnreadScope = {
   generation: string;
   revision: number;
@@ -11120,6 +11145,7 @@ export function maybeInstallE2eTauriMocks() {
   resetMockObservedUnread();
   resetMockTeamCatalogEvents(config);
   resetMockSaveSubscriptions(config);
+  resetMockKanbanCards();
   resetMockPendingCommunityDeepLinks(config);
   resetMockPendingNavigationDeepLinks(config);
   resetMockPendingEntityDeepLinks(config);
@@ -14239,6 +14265,54 @@ export function maybeInstallE2eTauriMocks() {
         }
         // Return the no-canvas success shape — content null means no canvas set.
         return { content: null, updated_at: null, author: null };
+      }
+      case "get_channel_kanban_cards": {
+        const { channelId } = payload as { channelId: string };
+        const byId = mockKanbanCards.get(channelId);
+        const cards = byId
+          ? [...byId.values()]
+              .filter((c) => !c.deleted)
+              .sort(
+                (a, b) =>
+                  a.position - b.position || a.created_at - b.created_at,
+              )
+          : [];
+        return { cards };
+      }
+      case "publish_kanban_card": {
+        const req = payload as {
+          channelId: string;
+          cardId: string;
+          column: string;
+          position: number;
+          title: string;
+          description?: string | null;
+          assignee?: string | null;
+          sourceEventId?: string | null;
+          deleted?: boolean | null;
+        };
+        const ident = activeConfig?.identity ?? DEFAULT_MOCK_IDENTITY;
+        const eventId = mockEventId();
+        let byId = mockKanbanCards.get(req.channelId);
+        if (!byId) {
+          byId = new Map();
+          mockKanbanCards.set(req.channelId, byId);
+        }
+        byId.set(req.cardId, {
+          event_id: eventId,
+          pubkey: ident.pubkey,
+          card_id: req.cardId,
+          column: req.column,
+          position: req.position,
+          title: req.title,
+          description: req.description ?? "",
+          assignee: req.assignee ?? null,
+          source_event_id: req.sourceEventId ?? null,
+          created_at: Math.floor(Date.now() / 1000),
+          channel_id: req.channelId,
+          deleted: req.deleted ?? false,
+        });
+        return eventId;
       }
       // ── Local-save archive ──────────────────────────────────────────────
       // These stubs drive the LocalArchiveSettingsCard in screenshot / UI tests

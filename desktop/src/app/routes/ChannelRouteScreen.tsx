@@ -9,6 +9,9 @@ import { useOpenChannelDirectoryQuery } from "@/features/channels/openChannelDir
 import { ChannelScreen } from "@/features/channels/ui/ChannelScreen";
 import { FilesHeaderButton } from "@/features/files/ui/FilesHeaderButton";
 import { FilesPanel } from "@/features/files/ui/FilesPanel";
+import { onCreateCardFromMessage } from "@/features/kanban/lib/createFromMessageBus";
+import { KanbanBoardDialog } from "@/features/kanban/ui/KanbanBoardDialog";
+import { KanbanHeaderButton } from "@/features/kanban/ui/KanbanHeaderButton";
 import { HuddleStartingView } from "@/features/huddle/components/HuddleStartingView";
 import { huddleWindowChannelId } from "@/features/huddle/lib/huddleWindow";
 import {
@@ -170,6 +173,10 @@ export function ChannelRouteScreen({
   const [activeSearchHighlight, setActiveSearchHighlight] =
     React.useState<SearchHighlightNavigation | null>(searchHighlight ?? null);
   const [filesPanelOpen, setFilesPanelOpen] = React.useState(false);
+  const [kanbanOpen, setKanbanOpen] = React.useState(false);
+  const [kanbanSeedMessageId, setKanbanSeedMessageId] = React.useState<
+    string | null
+  >(null);
   const appliedSearchActivationIdRef = React.useRef<string | null>(
     searchHighlight?.activationId ?? null,
   );
@@ -229,6 +236,16 @@ export function ChannelRouteScreen({
     setTargetMessageEvents([]);
     setActiveSearchHighlight(null);
     setFilesPanelOpen(false);
+    setKanbanOpen(false);
+    setKanbanSeedMessageId(null);
+  }, [channelId]);
+
+  React.useEffect(() => {
+    return onCreateCardFromMessage((request) => {
+      if (request.channelId !== channelId) return;
+      setKanbanSeedMessageId(request.messageId);
+      setKanbanOpen(true);
+    });
   }, [channelId]);
 
   React.useEffect(() => {
@@ -313,42 +330,61 @@ export function ChannelRouteScreen({
   }
 
   return (
-    <ChannelScreen
-      activeChannel={activeChannel}
-      autoSendDraftKey={autoSendDraftKey}
-      currentIdentity={identityQuery.data}
-      currentProfile={profileQuery.data}
-      headerEndActions={
-        activeChannel && activeChannel.channelType !== "forum" ? (
-          <FilesHeaderButton
-            active={filesPanelOpen}
-            onClick={() => setFilesPanelOpen((open) => !open)}
-          />
-        ) : undefined
-      }
-      idleAuxiliaryOverridesThread={filesPanelOpen}
-      idleAuxiliaryPanel={
-        filesPanelOpen ? (
-          <FilesPanel
-            channel={activeChannel}
-            currentPubkey={identityQuery.data?.pubkey}
-          />
-        ) : undefined
-      }
-      idleAuxiliaryTitle={filesPanelOpen ? "Files" : ""}
-      onCloseIdleAuxiliaryPanel={() => setFilesPanelOpen(false)}
-      onCloseForumPost={() => {
-        void closeForumPost(channelId);
-      }}
-      onSelectForumPost={(postId) => {
-        void goForumPost(channelId, postId);
-      }}
-      selectedForumPostId={selectedPostId}
-      targetForumReplyId={targetReplyId}
-      targetMessageEvents={targetMessageEvents}
-      targetMessageId={targetMessageId}
-      targetSearchMessageId={activeSearchHighlight?.messageId}
-      targetSearchQuery={activeSearchHighlight?.query}
-    />
+    <>
+      <ChannelScreen
+        activeChannel={activeChannel}
+        autoSendDraftKey={autoSendDraftKey}
+        currentIdentity={identityQuery.data}
+        currentProfile={profileQuery.data}
+        headerEndActions={
+          activeChannel && activeChannel.channelType !== "forum" ? (
+            <>
+              <KanbanHeaderButton
+                active={kanbanOpen}
+                onClick={() => setKanbanOpen((open) => !open)}
+              />
+              <FilesHeaderButton
+                active={filesPanelOpen}
+                onClick={() => setFilesPanelOpen((open) => !open)}
+              />
+            </>
+          ) : undefined
+        }
+        idleAuxiliaryOverridesThread={filesPanelOpen}
+        idleAuxiliaryPanel={
+          filesPanelOpen ? (
+            <FilesPanel
+              channel={activeChannel}
+              currentPubkey={identityQuery.data?.pubkey}
+            />
+          ) : undefined
+        }
+        idleAuxiliaryTitle={filesPanelOpen ? "Files" : ""}
+        onCloseIdleAuxiliaryPanel={() => setFilesPanelOpen(false)}
+        onCloseForumPost={() => {
+          void closeForumPost(channelId);
+        }}
+        onSelectForumPost={(postId) => {
+          void goForumPost(channelId, postId);
+        }}
+        selectedForumPostId={selectedPostId}
+        targetForumReplyId={targetReplyId}
+        targetMessageEvents={targetMessageEvents}
+        targetMessageId={targetMessageId}
+        targetSearchMessageId={activeSearchHighlight?.messageId}
+        targetSearchQuery={activeSearchHighlight?.query}
+      />
+      <KanbanBoardDialog
+        channel={activeChannel}
+        currentPubkey={identityQuery.data?.pubkey}
+        onOpenChange={(open) => {
+          setKanbanOpen(open);
+          if (!open) setKanbanSeedMessageId(null);
+        }}
+        onSeedConsumed={() => setKanbanSeedMessageId(null)}
+        open={kanbanOpen}
+        seedFromMessageId={kanbanSeedMessageId}
+      />
+    </>
   );
 }

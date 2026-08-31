@@ -3,12 +3,14 @@ use tauri::{AppHandle, State};
 
 mod files;
 mod forum;
+mod kanban;
 
 pub use files::{get_channel_files, publish_channel_file};
 use forum::{
     apply_link_preview_suppression, fetch_agent_owner_pubkeys, link_preview_suppression_targets,
 };
 pub use forum::{get_forum_posts, get_forum_thread};
+pub use kanban::{get_channel_kanban_cards, publish_kanban_card};
 
 use crate::{
     app_state::AppState,

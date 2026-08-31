@@ -34,6 +34,10 @@ export const KIND_FORUM_COMMENT = 45003;
 // NIP-FS (docs/nips/NIP-FS.md): channel-scoped file entry. NIP-94 kind reused;
 // h-tagged to a channel. Mirror of buzz-core's KIND_FILE_METADATA.
 export const KIND_FILE_METADATA = 1063;
+// NIP-KB (docs/nips/NIP-KB.md): channel-scoped Kanban card. Regular stored
+// event; clients keep the newest version per `d` (last-write-wins). Mirror of
+// buzz-core's KIND_KANBAN_CARD.
+export const KIND_KANBAN_CARD = 40110;
 export const KIND_APPROVAL_REQUEST = 46010;
 export const KIND_MEMBER_ADDED_NOTIFICATION = 44100;
 export const KIND_MEMBER_REMOVED_NOTIFICATION = 44101;

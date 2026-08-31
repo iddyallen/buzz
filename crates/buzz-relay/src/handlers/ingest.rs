@@ -21,12 +21,12 @@ use buzz_core::kind::{
     KIND_GIT_REPO_STATE, KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT, KIND_GIT_STATUS_MERGED,
     KIND_GIT_STATUS_OPEN, KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES,
     KIND_HUDDLE_PARTICIPANT_JOINED, KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_STARTED,
-    KIND_IA_ARCHIVE_REQUEST, KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM, KIND_MANAGED_AGENT,
-    KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION, KIND_MODERATION_BAN,
-    KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT, KIND_MODERATION_UNBAN,
-    KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST, KIND_NIP29_CREATE_GROUP, KIND_NIP29_DELETE_EVENT,
-    KIND_NIP29_DELETE_GROUP, KIND_NIP29_EDIT_METADATA, KIND_NIP29_JOIN_REQUEST,
-    KIND_NIP29_LEAVE_REQUEST, KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER,
+    KIND_IA_ARCHIVE_REQUEST, KIND_IA_UNARCHIVE_REQUEST, KIND_KANBAN_CARD, KIND_LONG_FORM,
+    KIND_MANAGED_AGENT, KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION,
+    KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT,
+    KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST, KIND_NIP29_CREATE_GROUP,
+    KIND_NIP29_DELETE_EVENT, KIND_NIP29_DELETE_GROUP, KIND_NIP29_EDIT_METADATA,
+    KIND_NIP29_JOIN_REQUEST, KIND_NIP29_LEAVE_REQUEST, KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER,
     KIND_NIP43_LEAVE_REQUEST, KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST,
     KIND_PRESENCE_UPDATE, KIND_PRIVATE_MANAGED_AGENT, KIND_PRODUCT_FEEDBACK, KIND_PROFILE,
     KIND_PROJECT, KIND_REACTION, KIND_READ_STATE, KIND_REPORT, KIND_STREAM_MESSAGE,
@@ -518,6 +518,8 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         KIND_NIP29_CREATE_GROUP | KIND_CANVAS => Ok(Scope::ChannelsWrite),
         // NIP-FS: a file entry is channel content, scoped like a canvas.
         KIND_FILE_METADATA => Ok(Scope::ChannelsWrite),
+        // NIP-KB: a Kanban card is channel content, scoped like a canvas.
+        KIND_KANBAN_CARD => Ok(Scope::ChannelsWrite),
         KIND_NIP29_JOIN_REQUEST | KIND_NIP29_LEAVE_REQUEST | KIND_NIP43_LEAVE_REQUEST => {
             Ok(Scope::ChannelsRead)
         }
@@ -716,6 +718,7 @@ pub(crate) fn requires_h_channel_scope(kind: u32) -> bool {
             | KIND_STREAM_MESSAGE_DIFF
             | KIND_CANVAS
             | KIND_FILE_METADATA
+            | KIND_KANBAN_CARD
             | KIND_FORUM_POST
             | KIND_FORUM_VOTE
             | KIND_FORUM_COMMENT
@@ -3284,9 +3287,9 @@ mod tests {
     use super::*;
     use buzz_conformance::{TraceStep, Tracer};
     use buzz_core::kind::{
-        KIND_CANVAS, KIND_FORUM_COMMENT, KIND_FORUM_POST, KIND_FORUM_VOTE, KIND_LONG_FORM,
-        KIND_MANAGED_AGENT, KIND_PERSONA, KIND_PRESENCE_UPDATE, KIND_STREAM_MESSAGE,
-        KIND_STREAM_MESSAGE_DIFF, KIND_TEAM, KIND_USER_STATUS,
+        KIND_CANVAS, KIND_FORUM_COMMENT, KIND_FORUM_POST, KIND_FORUM_VOTE, KIND_KANBAN_CARD,
+        KIND_LONG_FORM, KIND_MANAGED_AGENT, KIND_PERSONA, KIND_PRESENCE_UPDATE,
+        KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_DIFF, KIND_TEAM, KIND_USER_STATUS,
     };
     use nostr::{EventBuilder, Kind};
 
@@ -3664,6 +3667,7 @@ mod tests {
             KIND_STREAM_MESSAGE_DIFF,
             KIND_CANVAS,
             KIND_FILE_METADATA,
+            KIND_KANBAN_CARD,
             KIND_FORUM_POST,
             KIND_FORUM_VOTE,
             KIND_FORUM_COMMENT,
@@ -3673,6 +3677,19 @@ mod tests {
                 "kind {kind} should require h"
             );
         }
+    }
+
+    #[test]
+    fn kanban_card_is_channel_content_requiring_channels_write() {
+        // NIP-KB: a kind:40110 Kanban card is channel content — needs an h tag
+        // and the same scope as a canvas, and is never global-only.
+        let dummy = make_dummy_event();
+        assert_eq!(
+            required_scope_for_kind(KIND_KANBAN_CARD, &dummy).unwrap(),
+            Scope::ChannelsWrite,
+        );
+        assert!(requires_h_channel_scope(KIND_KANBAN_CARD));
+        assert!(!is_global_only_kind(KIND_KANBAN_CARD));
     }
 
     #[test]
