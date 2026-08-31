@@ -142,6 +142,64 @@ fn openai_compat_model_normalization_preserves_provider_specific_ids() {
 }
 
 #[test]
+fn openai_compat_model_normalization_keeps_kimi_and_qwen_families() {
+    // T-1.2: with the `openai-compat` provider label the discovery must NOT
+    // strip non-OpenAI text-model families. Moonshot (kimi-*) and Alibaba Qwen
+    // (qwen-*) ids fail `is_agent_text_model_id`, so they would be dropped if the
+    // gpt-/o- whitelist applied — it must not apply for `openai-compat`.
+    let make_data = || {
+        vec![
+            OpenAiModelListItem {
+                id: "kimi-k2-0711-preview".to_string(),
+                created: Some(5),
+            },
+            OpenAiModelListItem {
+                id: "qwen-max".to_string(),
+                created: Some(4),
+            },
+            OpenAiModelListItem {
+                id: "qwen-plus".to_string(),
+                created: Some(3),
+            },
+            OpenAiModelListItem {
+                id: "gpt-5.4-mini".to_string(),
+                created: Some(2),
+            },
+        ]
+    };
+
+    // openai-compat: every id preserved (including kimi-*/qwen-*).
+    let compat_ids = normalize_openai_compatible_models(
+        OpenAiModelListResponse { data: make_data() },
+        Some("openai-compat"),
+    )
+    .into_iter()
+    .map(|model| model.id)
+    .collect::<Vec<_>>();
+    assert!(
+        compat_ids.contains(&"kimi-k2-0711-preview".to_string()),
+        "openai-compat must keep kimi-* ids, got {compat_ids:?}"
+    );
+    assert!(
+        compat_ids.contains(&"qwen-max".to_string()),
+        "openai-compat must keep qwen-* ids, got {compat_ids:?}"
+    );
+    assert!(compat_ids.contains(&"qwen-plus".to_string()));
+    assert!(compat_ids.contains(&"gpt-5.4-mini".to_string()));
+
+    // openai (exact): the whitelist applies, so kimi-*/qwen-* are stripped and
+    // only the gpt-* id survives — the prior behavior is unchanged.
+    let openai_ids = normalize_openai_compatible_models(
+        OpenAiModelListResponse { data: make_data() },
+        Some("openai"),
+    )
+    .into_iter()
+    .map(|model| model.id)
+    .collect::<Vec<_>>();
+    assert_eq!(openai_ids, vec!["gpt-5.4-mini".to_string()]);
+}
+
+#[test]
 fn openai_models_url_uses_openai_default_base_url() {
     assert_eq!(
         openai_compatible_models_url(&BTreeMap::new()),

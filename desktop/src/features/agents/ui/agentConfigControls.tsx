@@ -7,22 +7,17 @@
 import * as React from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
 
-import type { AcpRuntimeCatalogEntry } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { Input } from "@/shared/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import {
   AUTO_MODEL_DROPDOWN_VALUE,
-  AUTO_PROVIDER_DROPDOWN_VALUE,
   CUSTOM_MODEL_DROPDOWN_VALUE,
-  CUSTOM_PROVIDER_DROPDOWN_VALUE,
   getDefaultLlmModelLabel,
   getModelSelectValue,
-  getPersonaProviderOptions,
   hasPersonaModelOption,
   PERSONA_FIELD_CONTROL_CLASS,
   PERSONA_FIELD_SHELL_CLASS,
-  providerDisplayLabel,
   type PersonaModelOption,
 } from "./agentConfigOptions";
 import { MODEL_DISCOVERY_LOADING_VALUE } from "./usePersonaModelDiscovery";
@@ -610,75 +605,6 @@ export function AgentModelField({
       {showStatusMessage && statusMessage ? (
         <p className="text-xs text-muted-foreground">{statusMessage}</p>
       ) : null}
-    </div>
-  );
-}
-
-export function AgentProviderField({
-  disabled,
-  globalProvider,
-  isCustomProviderEditing,
-  isRequired,
-  onProviderChange,
-  provider,
-  selectedRuntime,
-}: {
-  disabled: boolean;
-  globalProvider?: string;
-  isCustomProviderEditing: boolean;
-  isRequired: boolean;
-  onProviderChange: (value: string) => void;
-  provider: string;
-  selectedRuntime: AcpRuntimeCatalogEntry | undefined;
-}) {
-  const trimmedProvider = provider.trim();
-  const providerOptions = getPersonaProviderOptions(
-    trimmedProvider,
-    selectedRuntime?.id ?? "",
-    globalProvider,
-  );
-  const providerSelectValue = isCustomProviderEditing
-    ? CUSTOM_PROVIDER_DROPDOWN_VALUE
-    : trimmedProvider || AUTO_PROVIDER_DROPDOWN_VALUE;
-
-  return (
-    <div className="space-y-1.5">
-      <RequiredFieldLabel htmlFor="agent-provider" isRequired={isRequired}>
-        LLM provider
-      </RequiredFieldLabel>
-      <select
-        aria-required={isRequired}
-        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={disabled}
-        id="agent-provider"
-        onChange={(event) => onProviderChange(event.target.value)}
-        value={providerSelectValue}
-      >
-        {providerOptions.map((option) => (
-          <option
-            key={option.id}
-            value={option.id || AUTO_PROVIDER_DROPDOWN_VALUE}
-          >
-            {option.id ? providerDisplayLabel(option.label) : option.label}
-          </option>
-        ))}
-        <option value={CUSTOM_PROVIDER_DROPDOWN_VALUE}>
-          Custom provider...
-        </option>
-      </select>
-      {isCustomProviderEditing ? (
-        <Input
-          aria-label="Custom provider ID"
-          autoCorrect="off"
-          disabled={disabled}
-          onChange={(event) => onProviderChange(event.target.value)}
-          placeholder="Custom provider ID"
-          value={provider}
-        />
-      ) : null}
-      <p className="text-xs text-muted-foreground">
-        Changing the provider updates the available model list immediately.
-      </p>
     </div>
   );
 }

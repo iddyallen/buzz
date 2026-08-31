@@ -42,6 +42,13 @@ import {
   runtimeSupportsLlmProviderSelection,
 } from "@/features/agents/ui/agentConfigOptions";
 import {
+  decodeOpenAiCompatPresetSelection,
+  envVarsForProviderSelection,
+  OPENAI_COMPAT_BASE_URL_ENV,
+  OPENAI_COMPAT_PROVIDER_ID,
+  openAiCompatPresetDropdownValue,
+} from "@/features/agents/ui/openaiCompatPresets";
+import {
   AgentConfigTextInput,
   AgentDropdownSelect,
   AgentModelField,
@@ -535,12 +542,19 @@ export function AgentConfigFields({
       onConfigChange({ ...config, env_vars: nextEnvVars, provider: null });
       return;
     }
+    // OpenAI-compatible presets (Moonshot/Kimi, DashScope/Qwen) decode to the
+    // real `openai-compat` provider; the base-url patch below pre-fills
+    // OPENAI_COMPAT_BASE_URL from the preset.
+    const preset = decodeOpenAiCompatPresetSelection(value);
+    const resolvedValue = preset ? OPENAI_COMPAT_PROVIDER_ID : value;
     const nextProvider =
-      value === AUTO_PROVIDER_DROPDOWN_VALUE || value === "" ? null : value;
+      resolvedValue === AUTO_PROVIDER_DROPDOWN_VALUE || resolvedValue === ""
+        ? null
+        : resolvedValue;
     const nextApiKey = getProviderApiKeyEnvVar(
       nextProvider ?? bakedProvider ?? "",
     );
-    const nextEnvVars = { ...config.env_vars };
+    let nextEnvVars = { ...config.env_vars };
     if (
       !preserveCredentialEnvVarsOnProviderChange &&
       previousApiKey &&
@@ -548,7 +562,22 @@ export function AgentConfigFields({
     ) {
       delete nextEnvVars[previousApiKey];
     }
-    const providerChanged = nextProvider !== (config.provider ?? null);
+    nextEnvVars = envVarsForProviderSelection(nextEnvVars, value);
+    // Key the "did the provider actually change" decision on the EFFECTIVE
+    // selection (provider + resolved base_url), not the raw provider string.
+    // Moonshot and DashScope both decode to the same `openai-compat`
+    // provider, so comparing `nextProvider` alone would treat a
+    // preset-to-different-preset switch as a no-op and leave a stale model
+    // id (and API key) pointed at the wrong endpoint.
+    const previousEffectiveSelection =
+      openAiCompatPresetDropdownValue(
+        config.provider ?? null,
+        config.env_vars[OPENAI_COMPAT_BASE_URL_ENV] ?? "",
+      ) ??
+      config.provider ??
+      AUTO_PROVIDER_DROPDOWN_VALUE;
+    const normalizedValue = value === "" ? AUTO_PROVIDER_DROPDOWN_VALUE : value;
+    const providerChanged = normalizedValue !== previousEffectiveSelection;
 
     onIsCustomProviderChange(false);
     onConfigChange({
@@ -608,7 +637,11 @@ export function AgentConfigFields({
   );
   const providerSelectValue = isCustomProvider
     ? CUSTOM_PROVIDER_DROPDOWN_VALUE
-    : providerValue || AUTO_PROVIDER_DROPDOWN_VALUE;
+    : (openAiCompatPresetDropdownValue(
+        providerValue,
+        config.env_vars[OPENAI_COMPAT_BASE_URL_ENV] ?? "",
+      ) ??
+      (providerValue || AUTO_PROVIDER_DROPDOWN_VALUE));
 
   const providerZeroLabel = React.useMemo(() => {
     if (!bakedProvider) return null;

@@ -3,6 +3,10 @@ import type {
   GlobalAgentConfig,
 } from "@/shared/api/types";
 import { BUZZ_AGENT_THINKING_EFFORT } from "./buzzAgentConfig";
+import {
+  OPENAI_COMPAT_PROVIDER_ID,
+  openAiCompatPresetProviderOptions,
+} from "./openaiCompatPresets";
 import type { RuntimeFileConfigSubset } from "@/shared/api/tauri";
 // Dialogs import getDefaultPersonaRuntime via this re-export; lib code imports
 // directly from lib/resolvePersonaRuntime.
@@ -145,7 +149,7 @@ const DEFAULT_MODEL_OPTION: PersonaModelOption = {
 export const PERSONA_LLM_PROVIDER_OPTIONS: readonly PersonaModelOption[] = [
   { id: "anthropic", label: "Anthropic" },
   { id: "openai", label: "OpenAI" },
-  { id: "openai-compat", label: "OpenAI-compatible" },
+  { id: "openai-compat", label: "OpenAI-compatible (custom)" },
   { id: "openrouter", label: "OpenRouter" },
   { id: "relay-mesh", label: "Buzz shared compute" },
   { id: "databricks", label: "Databricks" },
@@ -398,7 +402,18 @@ export function getPersonaProviderOptions(
   const filteredOptions = hideProviderIds?.size
     ? PERSONA_LLM_PROVIDER_OPTIONS.filter((o) => !hideProviderIds.has(o.id))
     : PERSONA_LLM_PROVIDER_OPTIONS;
-  const options = [...defaultProviderOptions, ...filteredOptions];
+  // Inject the OpenAI-compatible convenience presets (Moonshot/Kimi,
+  // DashScope/Qwen) directly after the plain `openai-compat` option so all
+  // three sit together. Preset ids are synthetic dropdown values decoded to
+  // `openai-compat` at the provider-change boundary — never persisted.
+  const withPresets: PersonaModelOption[] = [];
+  for (const option of filteredOptions) {
+    withPresets.push(option);
+    if (option.id === OPENAI_COMPAT_PROVIDER_ID) {
+      withPresets.push(...openAiCompatPresetProviderOptions());
+    }
+  }
+  const options = [...defaultProviderOptions, ...withPresets];
   if (
     trimmedProvider.length === 0 ||
     options.some((option) => option.id === trimmedProvider)
