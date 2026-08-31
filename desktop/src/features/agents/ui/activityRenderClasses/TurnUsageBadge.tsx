@@ -43,7 +43,7 @@ export function TurnUsageBadge({
 
   return (
     <ActivityRow
-      className="text-2xs text-muted-foreground/70"
+      className="text-xs text-muted-foreground/80"
       openToneScope="tool"
       testId="turn-usage-badge"
       title="Token usage reported for this call"
@@ -56,7 +56,7 @@ export function TurnUsageBadge({
       />
       {!vm.deltaReliable ? (
         <span
-          className="rounded-sm bg-amber-500/10 px-1 py-px text-3xs font-medium text-amber-600/90 dark:text-amber-400/90"
+          className="rounded-sm bg-amber-500/10 px-1 py-px text-2xs font-medium text-amber-600/90 dark:text-amber-400/90"
           data-testid="turn-usage-approximate"
           title="This harness could not confirm its previous usage baseline for this turn (e.g. after a restart mid-session), so these per-call counts may be inaccurate."
         >
@@ -65,7 +65,7 @@ export function TurnUsageBadge({
       ) : null}
       {vm.notableStopReason ? (
         <span
-          className="rounded-sm bg-muted px-1 py-px text-3xs font-medium text-muted-foreground/80"
+          className="rounded-sm bg-muted px-1 py-px text-2xs font-medium text-muted-foreground/80"
           data-testid="turn-usage-stop-reason"
         >
           {vm.notableStopReason}
@@ -73,11 +73,11 @@ export function TurnUsageBadge({
       ) : null}
       <ActivityRowContent className="pt-1 pb-1.5 pl-[18px]">
         {vm.turnUnreported ? (
-          <p className="text-3xs italic text-muted-foreground/60">
+          <p className="text-2xs italic text-muted-foreground/80">
             This harness did not report per-call usage for this turn.
           </p>
         ) : (
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-3xs text-muted-foreground/80 sm:grid-cols-3">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-2xs text-muted-foreground/80 sm:grid-cols-3">
             <UsageDetailRow field={vm.turn.input} />
             <UsageDetailRow field={vm.turn.output} />
             <UsageDetailRow field={vm.turn.cost} />
@@ -87,13 +87,13 @@ export function TurnUsageBadge({
           </dl>
         )}
         {vm.cumulative ? (
-          <p className="mt-1.5 text-3xs text-muted-foreground/60">
+          <p className="mt-1.5 text-2xs text-muted-foreground/80">
             Session total: {vm.cumulative.input.value} in ·{" "}
             {vm.cumulative.output.value} out · {vm.cumulative.cost.value}
           </p>
         ) : null}
         {vm.model ? (
-          <p className="mt-1 text-3xs text-muted-foreground/50">
+          <p className="mt-1 text-2xs text-muted-foreground/70">
             {vm.harness}
             {vm.model ? ` · ${vm.model}` : ""}
           </p>

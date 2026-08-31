@@ -292,6 +292,12 @@ export function resolveTurnMetric(
 
 const UNKNOWN_TOKEN_LABEL = "usage unknown";
 const UNKNOWN_COST_LABEL = "cost unknown";
+/**
+ * Collapsed-badge summary when a turn reports no per-call token counts. Reads
+ * as an invitation to expand (the row still carries a session total and cost),
+ * not as an error like the per-field `UNKNOWN_TOKEN_LABEL`.
+ */
+const SUMMARY_UNREPORTED_LABEL = "usage details";
 
 const compactTokenFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
@@ -454,9 +460,12 @@ function summarize(counts: ParsedTokenCounts): string {
   const tokens = formatTokenCount(counts.totalTokens);
   const cost = formatCostUsd(counts.costUsd);
   if (counts.totalTokens === null && counts.costUsd === null) {
-    return UNKNOWN_TOKEN_LABEL;
+    return SUMMARY_UNREPORTED_LABEL;
   }
-  const tokenPart = counts.totalTokens === null ? tokens : `${tokens} tokens`;
+  // Token count missing but cost known (e.g. Claude via ACP reports cost only):
+  // lead with the neutral "expand for more" label instead of "usage unknown".
+  const tokenPart =
+    counts.totalTokens === null ? SUMMARY_UNREPORTED_LABEL : `${tokens} tokens`;
   return `${tokenPart} · ${cost}`;
 }
 
@@ -503,7 +512,7 @@ export function buildTurnUsageViewModel(
     stopReason: metric.stopReason ?? null,
     notableStopReason: formatNotableStopReason(metric.stopReason),
     deltaReliable: metric.deltaReliable ?? true,
-    summaryLabel: turnCounts ? summarize(turnCounts) : UNKNOWN_TOKEN_LABEL,
+    summaryLabel: turnCounts ? summarize(turnCounts) : SUMMARY_UNREPORTED_LABEL,
     turnUnreported: turnCounts === null,
     turn: turnCounts ? buildDetail(turnCounts, costEstimated) : emptyDetail,
     cumulative: cumulativeCounts

@@ -323,7 +323,7 @@ test("buildTurnUsageViewModel — metric exists but turn counts absent renders '
 
   assert.ok(vm);
   assert.equal(vm.turnUnreported, true);
-  assert.equal(vm.summaryLabel, "usage unknown");
+  assert.equal(vm.summaryLabel, "usage details");
   assert.equal(vm.turn.input.unknown, true);
   assert.equal(vm.cumulative, null);
 });
@@ -345,7 +345,7 @@ test("buildTurnUsageViewModel — total tokens unknown but cost known still summ
     turn: { costUsd: 0.02 },
   });
   assert.ok(vm);
-  assert.equal(vm.summaryLabel, "usage unknown · $0.02");
+  assert.equal(vm.summaryLabel, "usage details · $0.02");
 });
 
 // ── deltaReliable ─────────────────────────────────────────────────────────────
