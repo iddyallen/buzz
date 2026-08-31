@@ -31,6 +31,12 @@ export type MentionSuggestion = {
   agentProvenance?: "managed-here" | "managed-elsewhere";
   notInChannel?: boolean;
   ownerLabel?: string | null;
+  /**
+   * One-sentence disclosure that mentioning this agent spends its owner's
+   * tokens/cost, not the viewer's. `null`/absent for the viewer's own agents
+   * and non-agent identities — see `agentInvocationBillingNotice.ts`.
+   */
+  billingNotice?: string | null;
   role?: string | null;
 };
 
@@ -397,6 +403,19 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
                             {truncatePubkey(collisionNpub)}
                           </span>
                         ) : null}
+                      </span>
+                    ) : null}
+                    {suggestion.billingNotice ? (
+                      <span
+                        className={cn(
+                          "flex min-h-3.5 min-w-0 items-center text-2xs italic leading-none",
+                          index === selectedIndex
+                            ? "text-accent-foreground/60"
+                            : "text-muted-foreground",
+                        )}
+                        data-testid="mention-agent-billing-notice"
+                      >
+                        {suggestion.billingNotice}
                       </span>
                     ) : null}
                   </span>

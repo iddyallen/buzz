@@ -407,3 +407,39 @@ test("agents without trustworthy provenance omit management provenance", () => {
     false,
   );
 });
+
+test("renders a billing notice only for another owner's agent", async () => {
+  const React = await import("react");
+  const { render } = await import("@testing-library/react");
+  const { MentionAutocomplete } = await import("./MentionAutocomplete.tsx");
+  const suggestions = [
+    {
+      pubkey: "a".repeat(64),
+      displayName: "Own Agent",
+      isAgent: true,
+      ownerLabel: "you",
+      billingNotice: null,
+    },
+    {
+      pubkey: "b".repeat(64),
+      displayName: "Other Agent",
+      isAgent: true,
+      ownerLabel: "Alice",
+      billingNotice: "Instructions are billed to Alice, not you.",
+    },
+  ];
+  const view = render(
+    React.createElement(MentionAutocomplete, {
+      suggestions,
+      selectedIndex: 0,
+      onSelect: () => {},
+    }),
+  );
+
+  const notices = view.getAllByTestId("mention-agent-billing-notice");
+  assert.equal(notices.length, 1);
+  assert.equal(
+    notices[0].textContent,
+    "Instructions are billed to Alice, not you.",
+  );
+});

@@ -1,6 +1,7 @@
 import type { MentionSuggestion } from "@/features/messages/ui/MentionAutocomplete";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { formatOwnerLabel } from "@/features/profile/lib/identity";
+import { agentInvocationBillingNoticeText } from "@/features/agents/lib/agentInvocationBillingNotice";
 import type { ChannelRole, ChannelType } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import type { MentionCandidate, TeamMentionMember } from "./mentionCandidates";
@@ -42,6 +43,10 @@ export function mapMentionCandidateToSuggestion(opts: {
   const ownerLabel = candidate.isAgent
     ? formatOwnerLabel(candidate.ownerPubkey, currentPubkey, ownerProfiles)
     : null;
+  const billingNotice = agentInvocationBillingNoticeText({
+    isAgent: candidate.isAgent,
+    ownerLabel,
+  });
 
   return {
     pubkey: candidate.pubkey,
@@ -73,6 +78,7 @@ export function mapMentionCandidateToSuggestion(opts: {
       channelType !== "dm" &&
       candidate.isMember === false,
     ownerLabel,
+    billingNotice,
     role: !candidate.isAgent && candidate.role === "admin" ? "admin" : null,
   };
 }

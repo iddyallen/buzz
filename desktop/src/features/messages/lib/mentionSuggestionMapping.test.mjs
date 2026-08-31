@@ -58,3 +58,18 @@ test("does not attribute people or personas to a device", () => {
     undefined,
   );
 });
+
+test("shows a billing notice for another owner's agent", () => {
+  assert.equal(
+    suggestion({ ownerPubkey: "c".repeat(64) }).billingNotice,
+    "Instructions are billed to cccccccc…cccc, not you.",
+  );
+});
+
+test("shows no billing notice for the viewer's own agent", () => {
+  assert.equal(suggestion({ ownerPubkey: OWNER }).billingNotice, null);
+});
+
+test("shows no billing notice for a non-agent identity", () => {
+  assert.equal(suggestion({ isAgent: false }).billingNotice, null);
+});
