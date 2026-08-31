@@ -50,6 +50,12 @@ export type WireTokenCounts = {
   cacheWriteTokens?: number | null;
 };
 
+export type WirePricingIdentity = {
+  authority: string;
+  model: string;
+  cacheClass?: string | null;
+};
+
 export type WireAgentTurnMetricPayload = {
   harness: string;
   model?: string | null;
@@ -62,6 +68,7 @@ export type WireAgentTurnMetricPayload = {
   cumulative?: WireTokenCounts | null;
   deltaReliable?: boolean;
   stopReason?: string | null;
+  pricingIdentity?: WirePricingIdentity | null;
 };
 
 // ── Parsing ──────────────────────────────────────────────────────────────────
@@ -107,6 +114,26 @@ export function parseAgentTurnMetricRow(
     cumulative: parseWireTokenCounts(obj.cumulative),
     deltaReliable: obj.deltaReliable !== false,
     stopReason: typeof obj.stopReason === "string" ? obj.stopReason : null,
+    pricingIdentity: parsePricingIdentity(obj.pricingIdentity),
+  };
+}
+
+/**
+ * `pricingIdentity` is OPTIONAL but NOT nullable per NIP-AM: present only
+ * when the publisher can prove billing applicability from the actual
+ * endpoint and actually-requested model. Absence (any shape that isn't a
+ * valid identity) means "price unknown/unproven" — never assumed present.
+ */
+function parsePricingIdentity(value: unknown): WirePricingIdentity | null {
+  if (typeof value !== "object" || value === null) return null;
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.authority !== "string" || typeof obj.model !== "string") {
+    return null;
+  }
+  return {
+    authority: obj.authority,
+    model: obj.model,
+    cacheClass: typeof obj.cacheClass === "string" ? obj.cacheClass : null,
   };
 }
 
@@ -277,14 +304,20 @@ const exactTokenFormatter = new Intl.NumberFormat("en-US");
  * Format a token count for display. `null` (not reported) renders as
  * `"usage unknown"` — visually and textually distinct from an explicit `0`,
  * which renders as `"0"`.
+ *
+ * `opts.compact` defaults to `true` (compact notation, e.g. "1.2K"). Pass
+ * `{ compact: false }` for exact notation (e.g. "1,234"). The default is
+ * spelled out explicitly below (`opts.compact ?? true`) rather than as a
+ * `!== false` check, so the flag's positive/default direction reads
+ * unambiguously at the call site.
  */
 export function formatTokenCount(
   value: bigint | null,
   opts: { compact?: boolean } = {},
 ): string {
   if (value === null) return UNKNOWN_TOKEN_LABEL;
-  const formatter =
-    opts.compact === false ? exactTokenFormatter : compactTokenFormatter;
+  const useCompact = opts.compact ?? true;
+  const formatter = useCompact ? compactTokenFormatter : exactTokenFormatter;
   return formatter.format(value);
 }
 
@@ -306,6 +339,13 @@ export type TurnUsageFieldView = {
   value: string;
   /** `true` when the underlying count/cost is `null` (unknown), for muted styling. */
   unknown: boolean;
+  /**
+   * `true` only for the `cost` field, when a cost figure is reported but
+   * `pricingIdentity` was absent from the wire payload — i.e. the harness
+   * computed it without a proven billing identity (NIP-AM: absence means
+   * "price unknown/unproven"). Always `false` for token-count fields.
+   */
+  estimated: boolean;
 };
 
 export type TurnUsageDetail = {
@@ -322,6 +362,22 @@ export type TurnUsageViewModel = {
   harness: string;
   model: string | null;
   stopReason: string | null;
+  /**
+   * Human-readable stop reason, but only when it's a non-routine outcome
+   * worth surfacing (e.g. "Max tokens reached", "Cancelled", "Error").
+   * `null` for the boring `end_turn` case (and when `stopReason` is absent)
+   * so the badge stays quiet for the common path and only calls out
+   * failures/anomalies — per this repo's outcome-first activity-feed design.
+   */
+  notableStopReason: string | null;
+  /**
+   * `false` when the publisher (harness) could not observe its previous
+   * cumulative usage baseline for this turn (e.g. a harness restart
+   * mid-session) — per NIP-AM, this makes the `turn` (per-call) counts on
+   * this report unreliable, though not necessarily wrong. Defaults to
+   * `true` (reliable) when the wire payload omits the field.
+   */
+  deltaReliable: boolean;
   /** One-line summary for the collapsed badge, e.g. "1.2K tokens · $0.0031". */
   summaryLabel: string;
   /** `true` when the harness reported no per-turn counts at all for this call. */
@@ -329,6 +385,28 @@ export type TurnUsageViewModel = {
   turn: TurnUsageDetail;
   cumulative: TurnUsageDetail | null;
 };
+
+const STOP_REASON_LABELS: Readonly<Record<string, string>> = {
+  end_turn: "Ended normally",
+  max_tokens: "Max tokens reached",
+  cancelled: "Cancelled",
+  error: "Error",
+  unknown: "Unknown stop reason",
+};
+
+/**
+ * Format a `stopReason` for display, but only when it's worth surfacing.
+ * Returns `null` for the routine `end_turn` case (and for absent/empty
+ * input) so the badge only calls out non-normal outcomes — a turn that
+ * errored, hit max-tokens, or was cancelled is exactly the kind of thing a
+ * supervisor should see at a glance; "ended normally" is not.
+ */
+export function formatNotableStopReason(
+  stopReason: string | null | undefined,
+): string | null {
+  if (!stopReason || stopReason === "end_turn") return null;
+  return STOP_REASON_LABELS[stopReason] ?? stopReason;
+}
 
 /**
  * Detail rows (the expanded disclosure) use exact, non-compact formatting —
@@ -340,21 +418,35 @@ function field(label: string, count: bigint | null): TurnUsageFieldView {
     label,
     value: formatTokenCount(count, { compact: false }),
     unknown: count === null,
+    estimated: false,
   };
 }
 
-function costField(cost: number | null): TurnUsageFieldView {
-  return { label: "Cost", value: formatCostUsd(cost), unknown: cost === null };
+function costField(
+  cost: number | null,
+  estimated: boolean,
+): TurnUsageFieldView {
+  return {
+    label: "Cost",
+    value: formatCostUsd(cost),
+    unknown: cost === null,
+    // Only meaningful when a cost was actually reported — an unknown cost
+    // has nothing to qualify as "estimated".
+    estimated: cost !== null && estimated,
+  };
 }
 
-function buildDetail(counts: ParsedTokenCounts): TurnUsageDetail {
+function buildDetail(
+  counts: ParsedTokenCounts,
+  costEstimated: boolean,
+): TurnUsageDetail {
   return {
     input: field("Input", counts.inputTokens),
     output: field("Output", counts.outputTokens),
     cacheRead: field("Cache read", counts.cacheReadTokens),
     cacheWrite: field("Cache write", counts.cacheWriteTokens),
     freshInput: field("Fresh input", counts.freshInputTokens),
-    cost: costField(counts.costUsd),
+    cost: costField(counts.costUsd, costEstimated),
   };
 }
 
@@ -387,25 +479,35 @@ export function buildTurnUsageViewModel(
 
   const turnCounts = parseTokenCounts(metric.turn);
   const cumulativeCounts = parseTokenCounts(metric.cumulative);
+  // "estimated" only qualifies a *reported* cost figure — pricingIdentity's
+  // absence is meaningless when there's no cost to begin with.
+  const costEstimated = !metric.pricingIdentity;
 
-  const emptyDetail: TurnUsageDetail = buildDetail({
-    inputTokens: null,
-    outputTokens: null,
-    totalTokens: null,
-    costUsd: null,
-    cacheReadTokens: null,
-    cacheWriteTokens: null,
-    freshInputTokens: null,
-  });
+  const emptyDetail: TurnUsageDetail = buildDetail(
+    {
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      costUsd: null,
+      cacheReadTokens: null,
+      cacheWriteTokens: null,
+      freshInputTokens: null,
+    },
+    costEstimated,
+  );
 
   return {
     turnId: metric.turnId,
     harness: metric.harness,
     model: metric.model ?? null,
     stopReason: metric.stopReason ?? null,
+    notableStopReason: formatNotableStopReason(metric.stopReason),
+    deltaReliable: metric.deltaReliable ?? true,
     summaryLabel: turnCounts ? summarize(turnCounts) : UNKNOWN_TOKEN_LABEL,
     turnUnreported: turnCounts === null,
-    turn: turnCounts ? buildDetail(turnCounts) : emptyDetail,
-    cumulative: cumulativeCounts ? buildDetail(cumulativeCounts) : null,
+    turn: turnCounts ? buildDetail(turnCounts, costEstimated) : emptyDetail,
+    cumulative: cumulativeCounts
+      ? buildDetail(cumulativeCounts, costEstimated)
+      : null,
   };
 }

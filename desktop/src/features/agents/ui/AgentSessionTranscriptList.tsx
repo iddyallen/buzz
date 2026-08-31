@@ -152,9 +152,12 @@ export function AgentSessionTranscriptList({
   );
 
   // Per-call (per-turn) token/cost usage, joined by turnId — see
-  // `useAgentTurnMetricsIndex` and `TurnUsageBadge`. Skipped in compact
-  // preview surfaces (sidebar/pulse cards) where the usage line would just be
-  // noise; those variants pass a smaller subset of transcript items anyway.
+  // `useAgentTurnMetricsIndex` and `TurnUsageBadge`. The hook itself always
+  // runs (it reads the locally-archived kind:44200 index unconditionally,
+  // regardless of variant) — only the *rendering* of `TurnUsageBadge` is
+  // skipped for the compact-preview variant (sidebar/pulse cards), via
+  // `EMPTY_TURN_USAGE_INDEX` below, since the usage line would just be noise
+  // there.
   const isCompactPreviewVariant = variant === "compactPreview";
   const turnUsageIndex = useAgentTurnMetricsIndex();
 

@@ -6,6 +6,7 @@ import {
   buildTurnUsageViewModel,
   computeFreshInputTokens,
   formatCostUsd,
+  formatNotableStopReason,
   formatTokenCount,
   parseAgentTurnMetricRow,
   parseTokenCounts,
@@ -70,6 +71,41 @@ test("parseAgentTurnMetricRow — non-object JSON fails closed", () => {
   assert.equal(parseAgentTurnMetricRow("42"), null);
   assert.equal(parseAgentTurnMetricRow("null"), null);
   assert.equal(parseAgentTurnMetricRow('"a string"'), null);
+});
+
+test("parseAgentTurnMetricRow — pricingIdentity is parsed when authority+model are strings", () => {
+  const raw = JSON.stringify({
+    harness: "buzz-agent",
+    timestamp: "2026-08-30T12:00:00Z",
+    pricingIdentity: {
+      authority: "api.anthropic.com",
+      model: "claude-sonnet-5",
+    },
+  });
+  const parsed = parseAgentTurnMetricRow(raw);
+  assert.ok(parsed);
+  assert.deepEqual(parsed.pricingIdentity, {
+    authority: "api.anthropic.com",
+    model: "claude-sonnet-5",
+    cacheClass: null,
+  });
+});
+
+test("parseAgentTurnMetricRow — pricingIdentity absent or malformed parses to null", () => {
+  const absent = parseAgentTurnMetricRow(
+    JSON.stringify({ harness: "goose", timestamp: "2026-08-30T12:00:00Z" }),
+  );
+  const malformed = parseAgentTurnMetricRow(
+    JSON.stringify({
+      harness: "goose",
+      timestamp: "2026-08-30T12:00:00Z",
+      pricingIdentity: { authority: "api.anthropic.com" },
+    }),
+  );
+  assert.ok(absent);
+  assert.ok(malformed);
+  assert.equal(absent.pricingIdentity, null);
+  assert.equal(malformed.pricingIdentity, null);
 });
 
 test("parseAgentTurnMetricRow — turnId absent parses fine but stays null", () => {
@@ -310,4 +346,121 @@ test("buildTurnUsageViewModel — total tokens unknown but cost known still summ
   });
   assert.ok(vm);
   assert.equal(vm.summaryLabel, "usage unknown · $0.02");
+});
+
+// ── deltaReliable ─────────────────────────────────────────────────────────────
+
+test("buildTurnUsageViewModel — deltaReliable: true is carried through unchanged", () => {
+  const vm = buildTurnUsageViewModel({
+    harness: "buzz-agent",
+    timestamp: "2026-08-30T12:00:00Z",
+    turnId: "turn-reliable",
+    turn: { totalTokens: 100 },
+    deltaReliable: true,
+  });
+  assert.ok(vm);
+  assert.equal(vm.deltaReliable, true);
+});
+
+test("buildTurnUsageViewModel — deltaReliable: false is surfaced on the view model", () => {
+  const vm = buildTurnUsageViewModel({
+    harness: "buzz-agent",
+    timestamp: "2026-08-30T12:00:00Z",
+    turnId: "turn-unreliable",
+    turn: { totalTokens: 100 },
+    deltaReliable: false,
+  });
+  assert.ok(vm);
+  assert.equal(vm.deltaReliable, false);
+});
+
+test("buildTurnUsageViewModel — deltaReliable absent defaults to true per NIP-AM", () => {
+  const vm = buildTurnUsageViewModel({
+    harness: "buzz-agent",
+    timestamp: "2026-08-30T12:00:00Z",
+    turnId: "turn-absent",
+    turn: { totalTokens: 100 },
+  });
+  assert.ok(vm);
+  assert.equal(vm.deltaReliable, true);
+});
+
+// ── stopReason → notableStopReason ───────────────────────────────────────────
+
+test("formatNotableStopReason — end_turn (the routine case) is not notable", () => {
+  assert.equal(formatNotableStopReason("end_turn"), null);
+});
+
+test("formatNotableStopReason — absent stop reason is not notable", () => {
+  assert.equal(formatNotableStopReason(null), null);
+  assert.equal(formatNotableStopReason(undefined), null);
+});
+
+test("formatNotableStopReason — non-routine reasons get a human label", () => {
+  assert.equal(formatNotableStopReason("max_tokens"), "Max tokens reached");
+  assert.equal(formatNotableStopReason("cancelled"), "Cancelled");
+  assert.equal(formatNotableStopReason("error"), "Error");
+});
+
+test("formatNotableStopReason — unrecognized value falls back to the raw string", () => {
+  assert.equal(formatNotableStopReason("something_new"), "something_new");
+});
+
+test("buildTurnUsageViewModel — notableStopReason is null for end_turn, set otherwise", () => {
+  const normal = buildTurnUsageViewModel({
+    harness: "goose",
+    timestamp: "2026-08-30T12:00:00Z",
+    turnId: "turn-normal",
+    stopReason: "end_turn",
+  });
+  const errored = buildTurnUsageViewModel({
+    harness: "goose",
+    timestamp: "2026-08-30T12:00:00Z",
+    turnId: "turn-errored",
+    stopReason: "error",
+  });
+  assert.ok(normal);
+  assert.ok(errored);
+  assert.equal(normal.notableStopReason, null);
+  assert.equal(errored.notableStopReason, "Error");
+});
+
+// ── pricingIdentity → estimated cost ─────────────────────────────────────────
+
+test("buildTurnUsageViewModel — cost is not flagged estimated when pricingIdentity is present", () => {
+  const vm = buildTurnUsageViewModel({
+    harness: "buzz-agent",
+    timestamp: "2026-08-30T12:00:00Z",
+    turnId: "turn-priced",
+    turn: { costUsd: 0.05 },
+    pricingIdentity: {
+      authority: "api.anthropic.com",
+      model: "claude-sonnet-5",
+    },
+  });
+  assert.ok(vm);
+  assert.equal(vm.turn.cost.estimated, false);
+});
+
+test("buildTurnUsageViewModel — cost is flagged estimated when pricingIdentity is absent", () => {
+  const vm = buildTurnUsageViewModel({
+    harness: "buzz-agent",
+    timestamp: "2026-08-30T12:00:00Z",
+    turnId: "turn-unpriced",
+    turn: { costUsd: 0.05 },
+  });
+  assert.ok(vm);
+  assert.equal(vm.turn.cost.estimated, true);
+});
+
+test("buildTurnUsageViewModel — no estimated flag when cost itself is unknown", () => {
+  const vm = buildTurnUsageViewModel({
+    harness: "buzz-agent",
+    timestamp: "2026-08-30T12:00:00Z",
+    turnId: "turn-no-cost",
+    turn: { totalTokens: 10 },
+  });
+  assert.ok(vm);
+  assert.equal(vm.turn.cost.unknown, true);
+  assert.equal(vm.turn.cost.estimated, false);
 });

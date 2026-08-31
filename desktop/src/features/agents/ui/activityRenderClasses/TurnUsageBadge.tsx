@@ -54,6 +54,23 @@ export function TurnUsageBadge({
         openToneScope="tool"
         verb="Usage"
       />
+      {!vm.deltaReliable ? (
+        <span
+          className="rounded-sm bg-amber-500/10 px-1 py-px text-3xs font-medium text-amber-600/90 dark:text-amber-400/90"
+          data-testid="turn-usage-approximate"
+          title="This harness could not confirm its previous usage baseline for this turn (e.g. after a restart mid-session), so these per-call counts may be inaccurate."
+        >
+          approx.
+        </span>
+      ) : null}
+      {vm.notableStopReason ? (
+        <span
+          className="rounded-sm bg-muted px-1 py-px text-3xs font-medium text-muted-foreground/80"
+          data-testid="turn-usage-stop-reason"
+        >
+          {vm.notableStopReason}
+        </span>
+      ) : null}
       <ActivityRowContent className="pt-1 pb-1.5 pl-[18px]">
         {vm.turnUnreported ? (
           <p className="text-3xs italic text-muted-foreground/60">
@@ -92,6 +109,14 @@ function UsageDetailRow({ field }: { field: TurnUsageFieldView }) {
       <dt>{field.label}</dt>
       <dd className={cn("tabular-nums", field.unknown && "italic opacity-70")}>
         {field.value}
+        {field.estimated ? (
+          <span
+            className="ml-1 not-italic opacity-70"
+            title="No proven pricing identity (endpoint + model) was reported for this call, so this cost is a harness estimate rather than a confirmed billed amount."
+          >
+            (est.)
+          </span>
+        ) : null}
       </dd>
     </div>
   );
