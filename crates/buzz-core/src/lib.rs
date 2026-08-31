@@ -16,6 +16,8 @@ pub mod engram;
 pub mod error;
 /// Relay-side event wrapper with verification tracking.
 pub mod event;
+/// NIP-FS File Storage — channel-scoped `kind:1063` file entries.
+pub mod file_entry;
 /// NIP-01 subscription filter matching.
 pub mod filter;
 /// Git permission types — ref patterns, protection rules, policy evaluation.
