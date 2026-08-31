@@ -54,8 +54,12 @@ with a TypeScript lookup table or an id comparison in a component.
    (`managed_agents::claude_config::EFFORT_LEVEL_ENV_VAR`, applied via
    `session/set_config_option` once the adapter's `thought_level` configId is
    known), not a discovery-only placeholder — so Claude's `currentPersistence`
-   and `targetApplication` are the same key (`optionSource:
-   "claudeCapabilityManifest"` in `agentConfigCore.ts`). Claude's
+   and `targetApplication` are the same key. Its `optionSource` is
+   `"legacyProviderModelCatalog"` (`agentConfigCore.ts`) — Claude's effort
+   options resolve from the same shared `model-capabilities.json` (keyed on
+   provider `anthropic`, see `ui/modelCapabilities.ts`) that variant already
+   names for other harnesses; there is no separate Claude-specific manifest,
+   so this does not introduce a new `optionSource` variant. Claude's
    `model_env_var` deliberately stays unset: `ANTHROPIC_MODEL` is a separate
    spawn-time authority (`managed_agents::claude_config::apply_claude_model_env`)
    kept exclusive of the live ACP-switch channel other harnesses share, and

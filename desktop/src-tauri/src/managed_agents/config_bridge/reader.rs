@@ -545,15 +545,21 @@ fn build_thinking_field(
     is_pre_spawn: bool,
     tiers: &InheritedConfigTiers,
 ) -> Option<NormalizedField> {
-    // Tier ordering:
-    //   record env > record.effort_level (canonical Buzz-persisted) > ACP >
-    //   persona env > global env > definition env > config file.
-    //
-    // `record.effort_level` is the B5 canonical value: the effort a spawn will
-    // actually apply at next session start (via `apply_effort_env`). Sitting it
-    // above ACP means the panel shows the *configured* value the agent will
-    // launch with rather than a stale live-session reading — the record can't
-    // be masked by, nor mask, the running value silently.
+    // Tier ordering depends on whether `thinking_env_var` is the same env var
+    // spawn-time `apply_effort_env` writes (`claude_config::EFFORT_LEVEL_ENV_VAR`,
+    // i.e. `BUZZ_ACP_EFFORT_LEVEL`). That function runs AFTER `descriptor.env`
+    // (see `runtime.rs`), so for a harness wired to that exact var, the
+    // canonical `record.effort_level` always overwrites any raw env row at
+    // spawn time — the reader must rank canonical above raw env to match, or
+    // the panel would display a value the next spawn will not actually use.
+    // For every other harness (e.g. Goose's `GOOSE_THINKING_EFFORT`,
+    // buzz-agent's `BUZZ_AGENT_THINKING_EFFORT`), `apply_effort_env` never
+    // touches their var — only `descriptor.env` (raw env row) seeds it at
+    // spawn — so the raw env row is the value that will actually apply and
+    // must outrank the canonical field there.
+    let is_canonical_env_var =
+        thinking_env_var == Some(crate::managed_agents::claude_config::EFFORT_LEVEL_ENV_VAR);
+
     let [rec_env, pers_env, glob_env, def_env] = thinking_env_var
         .map(|k| {
             env_candidates(
@@ -568,21 +574,39 @@ fn build_thinking_field(
 
     let canonical_effort = record.effort_level.as_deref();
 
-    let tiers_list: &[(Option<&str>, ConfigOrigin)] = &[
-        (rec_env, ConfigOrigin::BuzzExplicit),
-        (canonical_effort, ConfigOrigin::BuzzExplicit),
-        (acp_effort.as_deref(), ConfigOrigin::AcpConfigOption),
-        (pers_env, ConfigOrigin::PersonaDefault),
-        (glob_env, ConfigOrigin::GlobalDefault),
-        (def_env, ConfigOrigin::HarnessDefault),
-        (file_effort.as_deref(), ConfigOrigin::ConfigFile),
-    ];
+    let tiers_list: &[(Option<&str>, ConfigOrigin)] = if is_canonical_env_var {
+        &[
+            (canonical_effort, ConfigOrigin::BuzzExplicit),
+            (rec_env, ConfigOrigin::BuzzExplicit),
+            (acp_effort.as_deref(), ConfigOrigin::AcpConfigOption),
+            (pers_env, ConfigOrigin::PersonaDefault),
+            (glob_env, ConfigOrigin::GlobalDefault),
+            (def_env, ConfigOrigin::HarnessDefault),
+            (file_effort.as_deref(), ConfigOrigin::ConfigFile),
+        ]
+    } else {
+        &[
+            (rec_env, ConfigOrigin::BuzzExplicit),
+            (canonical_effort, ConfigOrigin::BuzzExplicit),
+            (acp_effort.as_deref(), ConfigOrigin::AcpConfigOption),
+            (pers_env, ConfigOrigin::PersonaDefault),
+            (glob_env, ConfigOrigin::GlobalDefault),
+            (def_env, ConfigOrigin::HarnessDefault),
+            (file_effort.as_deref(), ConfigOrigin::ConfigFile),
+        ]
+    };
     let (value, origin, overridden_value, overridden_origin) = resolve_with_override(tiers_list)?;
 
+    // AGENTS.md rule 14 (desktop/src/features/agents/AGENTS.md): thinkingEffort
+    // is a read-only DISPLAY fed by `EffortPickerField`'s own direct-write path
+    // (`persistAgentEffortLevel`); the reader must not open a second write
+    // path for the same canonical-env-var harnesses. `AcpSetConfigOption`
+    // (live session) still applies once a session is running.
     let write_via = match (is_pre_spawn, effort_config_id, thinking_env_var) {
         (false, Some(config_id), _) => ConfigWriteMechanism::AcpSetConfigOption {
             config_id: config_id.to_string(),
         },
+        (_, _, Some(_)) if is_canonical_env_var => ConfigWriteMechanism::ReadOnly,
         (_, _, Some(env_key)) => ConfigWriteMechanism::RespawnWithEnvVar {
             env_key: env_key.to_string(),
         },

@@ -97,8 +97,16 @@ test("Claude exposes a real effort control via BUZZ_ACP_EFFORT_LEVEL (no longer 
   // KnownAcpRuntime declares thinking_env_var for "claude" as
   // BUZZ_ACP_EFFORT_LEVEL — a real, already-functioning spawn-time env var
   // (see managed_agents::claude_config), not a discovery-only ACP option.
+  // The fixture carries a BUZZ_ACP_EFFORT_LEVEL entry (distinct from the
+  // module-level `config`'s BUZZ_AGENT_THINKING_EFFORT) so this test proves
+  // the effort *value* actually round-trips through Claude's persistence
+  // key, not just the descriptor shape.
+  const claudeConfig = {
+    ...config,
+    env_vars: { ...config.env_vars, BUZZ_ACP_EFFORT_LEVEL: "high" },
+  };
   const model = deriveAgentConfigFieldModel({
-    config,
+    config: claudeConfig,
     runtime: runtime("claude", {
       thinkingEnvVar: "BUZZ_ACP_EFFORT_LEVEL",
     }),
@@ -110,7 +118,11 @@ test("Claude exposes a real effort control via BUZZ_ACP_EFFORT_LEVEL (no longer 
     ["model", "effort"],
   );
   assert.equal(field(model, "effort").render, "control");
-  assert.equal(field(model, "effort").optionSource, "claudeCapabilityManifest");
+  assert.equal(
+    field(model, "effort").optionSource,
+    "legacyProviderModelCatalog",
+  );
+  assert.equal(field(model, "effort").value, "high");
   // Claude's effort authority was migrated in full: currentPersistence matches
   // targetApplication (unlike Goose, whose migration is still pending — see
   // the "legacy env vars" persistence test above and AGENTS.md rule 2).
@@ -124,15 +136,19 @@ test("Claude exposes a real effort control via BUZZ_ACP_EFFORT_LEVEL (no longer 
   });
 });
 
-test("Claude with unknown thinkingEnvVar (stale/loading catalog) omits effort rather than guessing", () => {
-  // Defensive coverage: if the catalog hasn't reported thinkingEnvVar yet
-  // (metadata unknown, not "harness lacks the capability" — AGENTS.md rule 5),
-  // the field model must not render a stale acpConfigOption placeholder; it
-  // falls back to the generic omission bucket like any other harness with no
-  // declared thinking_env_var.
+test("no selected runtime (catalog loading/error) omits effort rather than guessing", () => {
+  // The real "metadata unknown" case (AGENTS.md rule 5) is `selectedRuntime`
+  // being undefined while the ACP runtime catalog query is loading or
+  // errored (see AgentConfigFields.tsx, RuntimeCatalogStatus) — NOT a
+  // resolved "claude" entry with a blank thinkingEnvVar, which can no longer
+  // occur post-merge: the catalog ships in the same binary, so a resolved
+  // "claude" entry always carries thinking_env_var. This exercises the
+  // actual gate: no structured effort control renders, and it falls back to
+  // the generic omission bucket rather than a stale acpConfigOption
+  // placeholder.
   const model = deriveAgentConfigFieldModel({
     config,
-    runtime: runtime("claude"),
+    runtime: undefined,
     scope: "global",
   });
 

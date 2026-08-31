@@ -71,7 +71,6 @@ export type AgentConfigFieldDescriptor =
       optionSource:
         | "buzzAgentCatalog"
         | "legacyProviderModelCatalog"
-        | "claudeCapabilityManifest"
         | "harnessNative";
       currentPersistence:
         | EnvVarPersistence
@@ -221,11 +220,16 @@ export function deriveAgentConfigFieldModel({
     const persistenceKey = isClaude
       ? runtime.thinkingEnvVar
       : BUZZ_AGENT_THINKING_EFFORT;
+    // optionSource describes where the *option list* comes from, not the
+    // persistence mechanism: Claude's effort options resolve from the same
+    // shared `model-capabilities.json` (keyed on provider `anthropic`) that
+    // `legacyProviderModelCatalog` already names for other harnesses — see
+    // `ui/modelCapabilities.ts`. There is no Claude-specific manifest, so
+    // this reuses the accurate existing variant instead of introducing one.
     fields.push({
       kind: "effort",
-      optionSource: isClaude
-        ? "claudeCapabilityManifest"
-        : runtime.id === "buzz-agent"
+      optionSource:
+        runtime.id === "buzz-agent"
           ? "buzzAgentCatalog"
           : "legacyProviderModelCatalog",
       currentPersistence: {
