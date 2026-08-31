@@ -1,6 +1,19 @@
-import type { ChannelFile } from "@/shared/api/types";
-
 import { invokeTauri } from "./tauri";
+
+/** NIP-FS channel file entry (`kind:1063`). */
+export type ChannelFile = {
+  eventId: string;
+  pubkey: string;
+  url: string;
+  sha256: string;
+  mime: string;
+  size: number;
+  name: string;
+  version: number;
+  description: string;
+  createdAt: number;
+  channelId: string;
+};
 
 type RawChannelFile = {
   event_id: string;

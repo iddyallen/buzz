@@ -17,7 +17,8 @@ import {
 import { resolveUserLabel } from "@/features/profile/lib/identity";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { invokeTauri } from "@/shared/api/tauri";
-import type { Channel, ChannelFile } from "@/shared/api/types";
+import type { ChannelFile } from "@/shared/api/files";
+import type { Channel } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import {

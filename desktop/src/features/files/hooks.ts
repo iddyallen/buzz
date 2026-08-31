@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import type { ChannelFile } from "@/shared/api/files";
 import { getChannelFiles, publishChannelFile } from "@/shared/api/files";
 import { deleteMessage } from "@/shared/api/tauri";
 import { uploadMediaFile } from "@/shared/api/tauriMedia";
 import type { BlobDescriptor } from "@/shared/api/tauri";
-import type { Channel, ChannelFile } from "@/shared/api/types";
+import type { Channel } from "@/shared/api/types";
 import { useFocusedRefetchInterval } from "@/shared/lib/useDocumentVisible";
 
 /** Focused polling cadence for the channel Files list. */

@@ -5,13 +5,51 @@
 //! channel-scoped event. Deletion reuses the shared `delete_message` command
 //! (NIP-09 `kind:5`).
 
+use nostr::{EventBuilder, Kind, Tag};
 use tauri::State;
+use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
+    events::check_content,
     models::{ChannelFileInfo, ChannelFilesResponse},
     relay::{query_relay, submit_event},
 };
+
+/// Build a `kind:1063` NIP-FS channel file entry. `description` is the event
+/// content (may be empty); the blob is uploaded via the media path first, this
+/// only records where it lives. Tag layout comes from
+/// `buzz_core_pkg::file_entry` so this builder and the relay-side validator
+/// cannot drift.
+fn build_channel_file(
+    channel_id: Uuid,
+    description: &str,
+    url: &str,
+    sha256: &str,
+    mime: &str,
+    size: u64,
+    name: &str,
+) -> Result<EventBuilder, String> {
+    check_content(description)?;
+    let entry = buzz_core_pkg::file_entry::FileEntry {
+        channel_id,
+        url: url.to_string(),
+        sha256: sha256.to_string(),
+        mime: mime.to_string(),
+        size,
+        name: name.to_string(),
+        version: 1,
+        replaces: None,
+        description: description.to_string(),
+    };
+    let tags = entry
+        .to_tag_rows()
+        .into_iter()
+        .map(Tag::parse)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("invalid file tag: {e}"))?;
+    Ok(EventBuilder::new(Kind::Custom(1063), description).tags(tags))
+}
 
 /// First value of the first tag named `name`, if present.
 fn first_tag_value(event: &nostr::Event, name: &str) -> Option<String> {
@@ -89,10 +127,10 @@ pub async fn publish_channel_file(
     description: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let channel_uuid = uuid::Uuid::parse_str(&channel_id)
-        .map_err(|_| format!("invalid channel UUID: {channel_id}"))?;
+    let channel_uuid =
+        Uuid::parse_str(&channel_id).map_err(|_| format!("invalid channel UUID: {channel_id}"))?;
 
-    let builder = crate::events::build_channel_file(
+    let builder = build_channel_file(
         channel_uuid,
         description.as_deref().unwrap_or(""),
         &url,

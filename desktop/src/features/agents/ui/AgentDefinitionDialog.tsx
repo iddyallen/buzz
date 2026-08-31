@@ -11,7 +11,6 @@ import { cn } from "@/shared/lib/cn";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
 import { AgentCreationPreview } from "./AgentCreationPreview";
-import { PersonaDropdownField } from "./PersonaDropdownField";
 import type { EnvVarsValue } from "./EnvVarsEditor";
 import { PersonaAdvancedFields } from "./PersonaAdvancedFields";
 import { PersonaModelField } from "./PersonaModelField";
@@ -48,10 +47,8 @@ import {
   type PersonaDropdownOption,
   PERSONA_FIELD_CONTROL_CLASS,
   PERSONA_FIELD_SHELL_CLASS,
-  PERSONA_LABEL_OPTIONAL_CLASS,
   shouldClearKnownModelForSelectionScope,
 } from "./agentConfigOptions";
-import { RequiredFieldLabel } from "./agentConfigControls";
 import {
   modelDropdownOptions as buildModelDropdownOptions,
   relayMeshModelPickerState,
@@ -87,10 +84,10 @@ import {
 import { useProviderApiKeyFieldState } from "./providerApiKeyFieldState";
 import { buildRuntimeModelProviderPayload } from "./agentDefinitionSubmitPayload";
 import {
-  agentDefinitionEffortState,
-  effortSelectionToEnvValue,
-  effortValueIsStale,
-} from "./agentDefinitionEffort";
+  AgentDefinitionEffortField,
+  envVarsForDefinitionSubmit,
+} from "./AgentDefinitionEffortField";
+import { AgentDefinitionProviderField } from "./AgentDefinitionProviderField";
 import { AgentDefinitionDialogFooter } from "./AgentDefinitionDialogFooter";
 import { AgentDefinitionDialogShell } from "./AgentDefinitionDialogShell";
 import { AddCustomHarnessDialog } from "./AddCustomHarnessDialog";
@@ -364,18 +361,11 @@ export function AgentDefinitionDialog({
         : "namePool" in initialValues
           ? []
           : undefined;
-    // In "use harness defaults" mode the per-agent model/provider are cleared
-    // above; the effort env var is per-agent customization too, so drop it.
-    const envVarsForSubmit =
-      aiConfigurationMode === "defaults" &&
-      effortEnvKey &&
-      effortEnvKey in envVars
-        ? (() => {
-            const next = { ...envVars };
-            delete next[effortEnvKey];
-            return next;
-          })()
-        : envVars;
+    const envVarsForSubmit = envVarsForDefinitionSubmit(
+      aiConfigurationMode,
+      envVars,
+      selectedRuntime?.thinkingEnvVar ?? null,
+    );
 
     const baseInput = {
       displayName: displayName.trim(),
@@ -424,50 +414,6 @@ export function AgentDefinitionDialog({
     (runtime.trim().length > 0 && runtimeCanChooseLlmProvider) ||
     blankRuntimeModelProviderEditable;
   const trimmedProvider = provider.trim();
-
-  // Thinking-effort control (create/edit definition). Options come from the
-  // static capability manifest via the selected runtime's `thinkingEnvVar`, so
-  // the picker is available before the agent has ever run — unlike the running
-  // agent's `EffortPickerField`, which needs a discovered configId.
-  const effortEnvKey = selectedRuntime?.thinkingEnvVar ?? null;
-  const effortCurrentValue = effortEnvKey ? (envVars[effortEnvKey] ?? "") : "";
-  const effortState = agentDefinitionEffortState({
-    runtimeId: runtime,
-    thinkingEnvVar: effortEnvKey,
-    providerFieldVisible: llmProviderFieldVisible,
-    provider,
-    model,
-    currentValue: effortCurrentValue,
-  });
-  // Drop a stored effort level that no longer applies to the current
-  // provider/model (mirrors the auto-clear in AgentConfigFields).
-  React.useEffect(() => {
-    if (
-      effortEnvKey &&
-      effortValueIsStale({
-        runtimeId: runtime,
-        thinkingEnvVar: effortEnvKey,
-        providerFieldVisible: llmProviderFieldVisible,
-        provider,
-        model,
-        currentValue: effortCurrentValue,
-      })
-    ) {
-      setEnvVars((prev) => {
-        if (!(effortEnvKey in prev)) return prev;
-        const next = { ...prev };
-        delete next[effortEnvKey];
-        return next;
-      });
-    }
-  }, [
-    effortEnvKey,
-    effortCurrentValue,
-    llmProviderFieldVisible,
-    provider,
-    model,
-    runtime,
-  ]);
 
   // Required credential env keys and file-layer config; silences requirements satisfied in the file layer.
   const { data: runtimeFileConfig } = useRuntimeFileConfigQuery(runtime, {
@@ -903,49 +849,19 @@ export function AgentDefinitionDialog({
               warning={runtimeWarning}
             />
           ) : null}
-          {llmProviderFieldVisible && aiConfigurationMode === "custom" ? (
-            <div className="space-y-1.5">
-              <RequiredFieldLabel
-                htmlFor="persona-llm-provider"
-                isRequired={providerIsRequired}
-              >
-                LLM provider
-                {!providerIsRequired ? (
-                  <span className={PERSONA_LABEL_OPTIONAL_CLASS}>Optional</span>
-                ) : null}
-              </RequiredFieldLabel>
-              <PersonaDropdownField
-                disabled={isPending}
-                id="persona-llm-provider"
-                onValueChange={handleProviderDropdownChange}
-                options={providerDropdownOptions}
-                placeholder="Choose a provider"
-                value={providerSelectValue}
-              />
-              {showCustomProviderInput ? (
-                <div
-                  className={cn(
-                    "mt-2 flex min-h-11 items-center px-3",
-                    PERSONA_FIELD_SHELL_CLASS,
-                  )}
-                >
-                  <Input
-                    aria-label="Custom provider ID"
-                    autoCorrect="off"
-                    className={cn(
-                      "h-8 px-0 py-0 leading-6",
-                      PERSONA_FIELD_CONTROL_CLASS,
-                    )}
-                    disabled={isPending}
-                    id="persona-custom-provider"
-                    onChange={(event) => setProvider(event.target.value)}
-                    placeholder="Custom provider ID"
-                    value={provider}
-                  />
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+          <AgentDefinitionProviderField
+            customValue={provider}
+            disabled={isPending}
+            isRequired={providerIsRequired}
+            onCustomValueChange={setProvider}
+            onValueChange={handleProviderDropdownChange}
+            options={providerDropdownOptions}
+            selectValue={providerSelectValue}
+            showCustomInput={showCustomProviderInput}
+            visible={
+              llmProviderFieldVisible && aiConfigurationMode === "custom"
+            }
+          />
 
           {llmProviderFieldVisible &&
           aiConfigurationMode === "custom" &&
@@ -987,39 +903,18 @@ export function AgentDefinitionDialog({
             ) : null}
           </AnimatePresence>
 
-          {aiConfigurationMode === "custom" &&
-          effortEnvKey &&
-          effortState.visible ? (
-            <div className="space-y-1.5">
-              <label
-                className="text-sm font-medium text-foreground"
-                htmlFor="agent-definition-effort"
-              >
-                Thinking effort
-                <span className={PERSONA_LABEL_OPTIONAL_CLASS}>Optional</span>
-              </label>
-              <PersonaDropdownField
-                disabled={isPending}
-                id="agent-definition-effort"
-                onValueChange={(value) => {
-                  setHasUserChanges(true);
-                  const next = effortSelectionToEnvValue(value);
-                  setEnvVars((prev) => {
-                    const updated = { ...prev };
-                    if (next === null) {
-                      delete updated[effortEnvKey];
-                    } else {
-                      updated[effortEnvKey] = next;
-                    }
-                    return updated;
-                  });
-                }}
-                options={effortState.options}
-                placeholder="Adapter default"
-                value={effortState.selectValue}
-              />
-            </div>
-          ) : null}
+          <AgentDefinitionEffortField
+            disabled={isPending}
+            envVars={envVars}
+            hidden={aiConfigurationMode !== "custom"}
+            model={model}
+            onUserChange={() => setHasUserChanges(true)}
+            provider={provider}
+            providerFieldVisible={llmProviderFieldVisible}
+            runtimeId={runtime}
+            setEnvVars={setEnvVars}
+            thinkingEnvVar={selectedRuntime?.thinkingEnvVar ?? null}
+          />
 
           {aiConfigurationMode === "defaults" ? (
             <AgentCreateAiDefaultsSummary
