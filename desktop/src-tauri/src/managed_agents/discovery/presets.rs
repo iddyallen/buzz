@@ -145,6 +145,17 @@ pub(super) const PRESET_HARNESSES: &[PresetHarness] = &[
         underlying_cli: None,
     },
     PresetHarness {
+        id: "qwen",
+        label: "Qwen Code",
+        command: "qwen",
+        args: &["--experimental-acp"],
+        install_instructions_url: "https://github.com/QwenLM/qwen-code",
+        install_hint: "Buzz talks to Qwen Code through its CLI's ACP mode \
+            (qwen --experimental-acp). Install it with \
+            `npm install -g @qwen-code/qwen-code`.",
+        underlying_cli: None,
+    },
+    PresetHarness {
         id: "amp",
         label: "Amp",
         command: "amp-acp",

@@ -35,7 +35,8 @@
       "id": "usage",
       "name": "Usage",
       "description": "Local dashboard of token and cost usage per agent, over a selectable time period",
-      "platforms": ["desktop"]
+      "platforms": ["desktop"],
+      "defaultEnabled": true
     }
   ]
 }
