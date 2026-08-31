@@ -31,6 +31,9 @@ export const KIND_JOB_CANCEL = 43005;
 export const KIND_JOB_ERROR = 43006;
 export const KIND_FORUM_POST = 45001;
 export const KIND_FORUM_COMMENT = 45003;
+// NIP-FS (docs/nips/NIP-FS.md): channel-scoped file entry. NIP-94 kind reused;
+// h-tagged to a channel. Mirror of buzz-core's KIND_FILE_METADATA.
+export const KIND_FILE_METADATA = 1063;
 export const KIND_APPROVAL_REQUEST = 46010;
 export const KIND_MEMBER_ADDED_NOTIFICATION = 44100;
 export const KIND_MEMBER_REMOVED_NOTIFICATION = 44101;

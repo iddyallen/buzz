@@ -7,6 +7,8 @@ import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { useOpenChannelDirectoryQuery } from "@/features/channels/openChannelDirectory";
 import { ChannelScreen } from "@/features/channels/ui/ChannelScreen";
+import { FilesHeaderButton } from "@/features/files/ui/FilesHeaderButton";
+import { FilesPanel } from "@/features/files/ui/FilesPanel";
 import { HuddleStartingView } from "@/features/huddle/components/HuddleStartingView";
 import { huddleWindowChannelId } from "@/features/huddle/lib/huddleWindow";
 import {
@@ -167,6 +169,7 @@ export function ChannelRouteScreen({
   });
   const [activeSearchHighlight, setActiveSearchHighlight] =
     React.useState<SearchHighlightNavigation | null>(searchHighlight ?? null);
+  const [filesPanelOpen, setFilesPanelOpen] = React.useState(false);
   const appliedSearchActivationIdRef = React.useRef<string | null>(
     searchHighlight?.activationId ?? null,
   );
@@ -225,6 +228,7 @@ export function ChannelRouteScreen({
     appliedSearchActivationIdRef.current = null;
     setTargetMessageEvents([]);
     setActiveSearchHighlight(null);
+    setFilesPanelOpen(false);
   }, [channelId]);
 
   React.useEffect(() => {
@@ -314,6 +318,25 @@ export function ChannelRouteScreen({
       autoSendDraftKey={autoSendDraftKey}
       currentIdentity={identityQuery.data}
       currentProfile={profileQuery.data}
+      headerEndActions={
+        activeChannel && activeChannel.channelType !== "forum" ? (
+          <FilesHeaderButton
+            active={filesPanelOpen}
+            onClick={() => setFilesPanelOpen((open) => !open)}
+          />
+        ) : undefined
+      }
+      idleAuxiliaryOverridesThread={filesPanelOpen}
+      idleAuxiliaryPanel={
+        filesPanelOpen ? (
+          <FilesPanel
+            channel={activeChannel}
+            currentPubkey={identityQuery.data?.pubkey}
+          />
+        ) : undefined
+      }
+      idleAuxiliaryTitle={filesPanelOpen ? "Files" : ""}
+      onCloseIdleAuxiliaryPanel={() => setFilesPanelOpen(false)}
       onCloseForumPost={() => {
         void closeForumPost(channelId);
       }}

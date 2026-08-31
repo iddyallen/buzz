@@ -1,8 +1,10 @@
 use nostr::{Event, EventId, Keys, PublicKey};
 use tauri::{AppHandle, State};
 
+mod files;
 mod forum;
 
+pub use files::{get_channel_files, publish_channel_file};
 use forum::{
     apply_link_preview_suppression, fetch_agent_owner_pubkeys, link_preview_suppression_targets,
 };

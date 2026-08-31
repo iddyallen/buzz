@@ -287,6 +287,28 @@ pub struct ForumPostsResponse {
     pub next_cursor: Option<i64>,
 }
 
+/// NIP-FS `kind:1063` file entry, flattened for the desktop Files view.
+#[derive(Serialize, Deserialize)]
+pub struct ChannelFileInfo {
+    pub event_id: String,
+    pub pubkey: String,
+    pub sig: String,
+    pub url: String,
+    pub sha256: String,
+    pub mime: String,
+    pub size: u64,
+    pub name: String,
+    pub version: u64,
+    pub description: String,
+    pub created_at: i64,
+    pub channel_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ChannelFilesResponse {
+    pub files: Vec<ChannelFileInfo>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct ForumThreadReplyInfo {
     pub event_id: String,

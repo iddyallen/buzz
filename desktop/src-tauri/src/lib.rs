@@ -640,6 +640,8 @@ pub fn run() {
             has_managed_agent_channel_message_marker,
             get_forum_posts,
             get_forum_thread,
+            get_channel_files,
+            publish_channel_file,
             get_thread_replies,
             get_channel_reconnect_repair,
             get_channel_window,

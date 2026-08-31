@@ -347,6 +347,42 @@ pub fn build_forum_comment(
     Ok(EventBuilder::new(Kind::Custom(45003), content).tags(tags))
 }
 
+/// Kind 1063 — NIP-FS channel file entry.
+///
+/// `description` becomes the event content (may be empty). The blob itself is
+/// uploaded through the existing media path first; this only records where it
+/// lives. Tag layout comes from `buzz_core_pkg::file_entry` so the relay-side
+/// validator and this builder cannot drift.
+pub fn build_channel_file(
+    channel_id: Uuid,
+    description: &str,
+    url: &str,
+    sha256: &str,
+    mime: &str,
+    size: u64,
+    name: &str,
+) -> Result<EventBuilder, String> {
+    check_content(description)?;
+    let entry = buzz_core_pkg::file_entry::FileEntry {
+        channel_id,
+        url: url.to_string(),
+        sha256: sha256.to_string(),
+        mime: mime.to_string(),
+        size,
+        name: name.to_string(),
+        version: 1,
+        replaces: None,
+        description: description.to_string(),
+    };
+    let tags = entry
+        .to_tag_rows()
+        .into_iter()
+        .map(Tag::parse)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("invalid file tag: {e}"))?;
+    Ok(EventBuilder::new(Kind::Custom(1063), description).tags(tags))
+}
+
 pub struct MessageEditTags<'a> {
     pub media: &'a [Vec<String>],
     pub custom_emoji: &'a [Vec<String>],
