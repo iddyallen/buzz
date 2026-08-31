@@ -168,6 +168,111 @@ test("custom-model editing suppresses the model-scope clear on provider switch",
   assert.equal(next.isCustomModelEditing, true);
 });
 
+// --- selectionOnProviderDropdownChange: openai-compat preset switching ---
+//
+// Moonshot and DashScope both decode to the same underlying `openai-compat`
+// provider, so the raw-provider comparison alone can't detect a
+// preset-to-different-preset switch. These cases key on the EFFECTIVE
+// selection (provider + resolved base_url) instead.
+
+const MOONSHOT_URL = "https://api.moonshot.ai/v1";
+const DASHSCOPE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+
+test("Moonshot -> DashScope clears the stale model id even though the provider string is unchanged", () => {
+  const next = selectionOnProviderDropdownChange(
+    {
+      ...base,
+      provider: "openai-compat",
+      model: "kimi-k2-0711-preview",
+      envVars: {
+        OPENAI_COMPAT_BASE_URL: MOONSHOT_URL,
+        OPENAI_COMPAT_API_KEY: "sk-moonshot",
+      },
+    },
+    {
+      runtime: "buzz-agent",
+      nextValue: "openai-compat-dashscope",
+      clearModelWhenApiKeyMissing: false,
+    },
+  );
+  assert.equal(next.provider, "openai-compat");
+  assert.equal(next.envVars.OPENAI_COMPAT_BASE_URL, DASHSCOPE_URL);
+  assert.equal(next.model, "");
+  assert.equal(next.isCustomModelEditing, false);
+});
+
+test("Moonshot -> Moonshot (re-selecting the same preset) is a no-op: model id is preserved", () => {
+  const next = selectionOnProviderDropdownChange(
+    {
+      ...base,
+      provider: "openai-compat",
+      model: "kimi-k2-0711-preview",
+      envVars: { OPENAI_COMPAT_BASE_URL: MOONSHOT_URL },
+    },
+    {
+      runtime: "buzz-agent",
+      nextValue: "openai-compat-moonshot",
+      clearModelWhenApiKeyMissing: false,
+    },
+  );
+  assert.equal(next.model, "kimi-k2-0711-preview");
+});
+
+test("preset -> custom openai-compat clears the model (real context change)", () => {
+  const next = selectionOnProviderDropdownChange(
+    {
+      ...base,
+      provider: "openai-compat",
+      model: "kimi-k2-0711-preview",
+      envVars: { OPENAI_COMPAT_BASE_URL: MOONSHOT_URL },
+    },
+    {
+      runtime: "buzz-agent",
+      nextValue: "openai-compat",
+      clearModelWhenApiKeyMissing: false,
+    },
+  );
+  assert.equal(next.model, "");
+});
+
+test("custom openai-compat -> preset clears the model (real context change)", () => {
+  const next = selectionOnProviderDropdownChange(
+    {
+      ...base,
+      provider: "openai-compat",
+      model: "my-custom-model",
+      envVars: { OPENAI_COMPAT_BASE_URL: "https://my.vllm.local/v1" },
+    },
+    {
+      runtime: "buzz-agent",
+      nextValue: "openai-compat-moonshot",
+      clearModelWhenApiKeyMissing: false,
+    },
+  );
+  assert.equal(next.model, "");
+});
+
+test("plain custom<->custom base_url editing never reaches this function, so it is unaffected", () => {
+  // Editing OPENAI_COMPAT_BASE_URL by hand is a text-field edit handled
+  // outside the provider dropdown, so selectionOnProviderDropdownChange is
+  // never invoked for it. Re-selecting the SAME already-current dropdown
+  // value (custom openai-compat, unchanged base_url) must not clear the model.
+  const next = selectionOnProviderDropdownChange(
+    {
+      ...base,
+      provider: "openai-compat",
+      model: "my-custom-model",
+      envVars: { OPENAI_COMPAT_BASE_URL: "https://my.vllm.local/v1" },
+    },
+    {
+      runtime: "buzz-agent",
+      nextValue: "openai-compat",
+      clearModelWhenApiKeyMissing: false,
+    },
+  );
+  assert.equal(next.model, "my-custom-model");
+});
+
 // --- selectionOnModelDropdownChange ---
 
 test("custom-model entry with clear (Persona) drops a known model", () => {

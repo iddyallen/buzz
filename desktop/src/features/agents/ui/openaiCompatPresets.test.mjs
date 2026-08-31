@@ -94,6 +94,32 @@ test("isKnownOpenAiCompatPresetBaseUrl recognizes preset endpoints", () => {
   );
 });
 
+test("isKnownOpenAiCompatPresetBaseUrl ignores a trailing slash", () => {
+  assert.equal(isKnownOpenAiCompatPresetBaseUrl(`${MOONSHOT_URL}/`), true);
+  assert.equal(isKnownOpenAiCompatPresetBaseUrl(`${DASHSCOPE_URL}/`), true);
+  assert.equal(
+    isKnownOpenAiCompatPresetBaseUrl("https://api.openai.com/v1/"),
+    false,
+  );
+});
+
+test("openAiCompatPresetDropdownValue ignores a trailing slash", () => {
+  assert.equal(
+    openAiCompatPresetDropdownValue(
+      OPENAI_COMPAT_PROVIDER_ID,
+      `${MOONSHOT_URL}/`,
+    ),
+    "openai-compat-moonshot",
+  );
+  assert.equal(
+    openAiCompatPresetDropdownValue(
+      OPENAI_COMPAT_PROVIDER_ID,
+      `${DASHSCOPE_URL}/`,
+    ),
+    "openai-compat-dashscope",
+  );
+});
+
 test("envVarsWithOpenAiCompatBaseUrl is a no-op when unchanged", () => {
   const current = { [OPENAI_COMPAT_BASE_URL_ENV]: MOONSHOT_URL };
   assert.equal(envVarsWithOpenAiCompatBaseUrl(current, MOONSHOT_URL), current);

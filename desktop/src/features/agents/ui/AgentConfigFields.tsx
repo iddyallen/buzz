@@ -563,7 +563,21 @@ export function AgentConfigFields({
       delete nextEnvVars[previousApiKey];
     }
     nextEnvVars = envVarsForProviderSelection(nextEnvVars, value);
-    const providerChanged = nextProvider !== (config.provider ?? null);
+    // Key the "did the provider actually change" decision on the EFFECTIVE
+    // selection (provider + resolved base_url), not the raw provider string.
+    // Moonshot and DashScope both decode to the same `openai-compat`
+    // provider, so comparing `nextProvider` alone would treat a
+    // preset-to-different-preset switch as a no-op and leave a stale model
+    // id (and API key) pointed at the wrong endpoint.
+    const previousEffectiveSelection =
+      openAiCompatPresetDropdownValue(
+        config.provider ?? null,
+        config.env_vars[OPENAI_COMPAT_BASE_URL_ENV] ?? "",
+      ) ??
+      config.provider ??
+      AUTO_PROVIDER_DROPDOWN_VALUE;
+    const normalizedValue = value === "" ? AUTO_PROVIDER_DROPDOWN_VALUE : value;
+    const providerChanged = normalizedValue !== previousEffectiveSelection;
 
     onIsCustomProviderChange(false);
     onConfigChange({

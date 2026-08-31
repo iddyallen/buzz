@@ -69,10 +69,20 @@ export function decodeOpenAiCompatPresetSelection(
   );
 }
 
-/** True when `baseUrl` exactly matches a known preset endpoint. */
-export function isKnownOpenAiCompatPresetBaseUrl(baseUrl: string): boolean {
+/**
+ * Normalize a base URL for preset comparison: trim whitespace and strip a
+ * single trailing slash, so `https://api.moonshot.ai/v1/` compares equal to
+ * the preset's `https://api.moonshot.ai/v1`.
+ */
+function normalizeBaseUrlForComparison(baseUrl: string): string {
   const trimmed = baseUrl.trim();
-  return OPENAI_COMPAT_PRESETS.some((preset) => preset.baseUrl === trimmed);
+  return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed;
+}
+
+/** True when `baseUrl` matches a known preset endpoint (trailing slash ignored). */
+export function isKnownOpenAiCompatPresetBaseUrl(baseUrl: string): boolean {
+  const normalized = normalizeBaseUrlForComparison(baseUrl);
+  return OPENAI_COMPAT_PRESETS.some((preset) => preset.baseUrl === normalized);
 }
 
 /**
@@ -90,9 +100,9 @@ export function openAiCompatPresetDropdownValue(
   if ((provider ?? "").trim() !== OPENAI_COMPAT_PROVIDER_ID) {
     return null;
   }
-  const trimmedBaseUrl = (baseUrl ?? "").trim();
+  const normalizedBaseUrl = normalizeBaseUrlForComparison(baseUrl ?? "");
   const match = OPENAI_COMPAT_PRESETS.find(
-    (preset) => preset.baseUrl === trimmedBaseUrl,
+    (preset) => preset.baseUrl === normalizedBaseUrl,
   );
   return match ? match.id : OPENAI_COMPAT_PROVIDER_ID;
 }

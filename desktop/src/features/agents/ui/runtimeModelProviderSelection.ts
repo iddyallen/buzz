@@ -10,7 +10,9 @@ import {
 import {
   decodeOpenAiCompatPresetSelection,
   envVarsForProviderSelection,
+  OPENAI_COMPAT_BASE_URL_ENV,
   OPENAI_COMPAT_PROVIDER_ID,
+  openAiCompatPresetDropdownValue,
 } from "./openaiCompatPresets";
 import { shouldClearModelForRuntimeChange } from "./personaRuntimeModel";
 import {
@@ -81,6 +83,28 @@ export function selectionOnRuntimeChange(
   return next;
 }
 
+/**
+ * Effective openai-compat selection for reset/clear decisions: reverse-maps
+ * (provider, base_url) to the preset id when the base_url matches a known
+ * preset, otherwise falls back to the plain provider id (or the AUTO
+ * placeholder for no provider). Two different presets share the same
+ * underlying `provider` string ("openai-compat"), so comparing this value
+ * (rather than the raw provider) is what lets a preset-to-different-preset
+ * switch be treated as a real context change.
+ */
+function effectiveProviderSelection(
+  provider: string,
+  envVars: EnvVarsValue,
+): string {
+  return (
+    openAiCompatPresetDropdownValue(
+      provider || null,
+      envVars[OPENAI_COMPAT_BASE_URL_ENV] ?? "",
+    ) ??
+    (provider || AUTO_PROVIDER_DROPDOWN_VALUE)
+  );
+}
+
 export function selectionOnProviderDropdownChange(
   current: RuntimeModelProviderSelection,
   params: {
@@ -134,14 +158,39 @@ export function selectionOnProviderDropdownChange(
 
   // Guard on the PRE-transition editing flag, matching all three dialogs
   // (their handlers read the render-scope value).
-  if (
+  const scopedModelKnownElsewhere =
     !current.isCustomModelEditing &&
     shouldClearKnownModelForSelectionScope({
       model: current.model,
       provider: nextProvider,
       runtime: params.runtime,
-    })
-  ) {
+    });
+
+  // Moonshot and DashScope both decode to the same `openai-compat` provider,
+  // so `shouldClearKnownModelForSelectionScope` (keyed on the raw provider
+  // string) can't see a preset-to-different-preset switch. When either side
+  // of the transition is in the openai-compat family, compare the EFFECTIVE
+  // selection (provider + resolved base_url) instead: any change there —
+  // preset-to-different-preset, preset-to-custom, or custom-to-preset — is a
+  // real context change and clears the stale model id. Scoping this to the
+  // openai-compat family keeps ordinary cross-provider switches (e.g.
+  // anthropic -> openai) governed solely by the pre-existing
+  // known-model-scope rule above. A plain custom<->custom base_url edit
+  // never reaches this function (it's a text-field edit, not a dropdown
+  // change), so it is unaffected either way.
+  const involvesOpenAiCompat =
+    current.provider === OPENAI_COMPAT_PROVIDER_ID ||
+    nextProvider === OPENAI_COMPAT_PROVIDER_ID;
+  const previousEffectiveSelection = effectiveProviderSelection(
+    current.provider,
+    current.envVars,
+  );
+  const normalizedNextValue =
+    params.nextValue === "" ? AUTO_PROVIDER_DROPDOWN_VALUE : params.nextValue;
+  const effectiveSelectionChanged =
+    involvesOpenAiCompat && normalizedNextValue !== previousEffectiveSelection;
+
+  if (scopedModelKnownElsewhere || effectiveSelectionChanged) {
     next.model = "";
     next.isCustomModelEditing = false;
   }
