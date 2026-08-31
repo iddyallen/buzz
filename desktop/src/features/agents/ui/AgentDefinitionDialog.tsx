@@ -86,6 +86,11 @@ import {
 } from "./agentAiConfigurationPolicy";
 import { useProviderApiKeyFieldState } from "./providerApiKeyFieldState";
 import { buildRuntimeModelProviderPayload } from "./agentDefinitionSubmitPayload";
+import {
+  agentDefinitionEffortState,
+  effortSelectionToEnvValue,
+  effortValueIsStale,
+} from "./agentDefinitionEffort";
 import { AgentDefinitionDialogFooter } from "./AgentDefinitionDialogFooter";
 import { AgentDefinitionDialogShell } from "./AgentDefinitionDialogShell";
 import { AddCustomHarnessDialog } from "./AddCustomHarnessDialog";
@@ -359,6 +364,19 @@ export function AgentDefinitionDialog({
         : "namePool" in initialValues
           ? []
           : undefined;
+    // In "use harness defaults" mode the per-agent model/provider are cleared
+    // above; the effort env var is per-agent customization too, so drop it.
+    const envVarsForSubmit =
+      aiConfigurationMode === "defaults" &&
+      effortEnvKey &&
+      effortEnvKey in envVars
+        ? (() => {
+            const next = { ...envVars };
+            delete next[effortEnvKey];
+            return next;
+          })()
+        : envVars;
+
     const baseInput = {
       displayName: displayName.trim(),
       avatarUrl: avatarUrl.trim() || undefined,
@@ -367,7 +385,7 @@ export function AgentDefinitionDialog({
       model: modelForSubmit,
       provider: providerForSubmit,
       namePool: namePoolInput,
-      envVars,
+      envVars: envVarsForSubmit,
       behavior: behaviorForSubmit(
         behaviorDraft,
         behaviorSeedRef.current,
@@ -406,6 +424,51 @@ export function AgentDefinitionDialog({
     (runtime.trim().length > 0 && runtimeCanChooseLlmProvider) ||
     blankRuntimeModelProviderEditable;
   const trimmedProvider = provider.trim();
+
+  // Thinking-effort control (create/edit definition). Options come from the
+  // static capability manifest via the selected runtime's `thinkingEnvVar`, so
+  // the picker is available before the agent has ever run — unlike the running
+  // agent's `EffortPickerField`, which needs a discovered configId.
+  const effortEnvKey = selectedRuntime?.thinkingEnvVar ?? null;
+  const effortCurrentValue = effortEnvKey ? (envVars[effortEnvKey] ?? "") : "";
+  const effortState = agentDefinitionEffortState({
+    runtimeId: runtime,
+    thinkingEnvVar: effortEnvKey,
+    providerFieldVisible: llmProviderFieldVisible,
+    provider,
+    model,
+    currentValue: effortCurrentValue,
+  });
+  // Drop a stored effort level that no longer applies to the current
+  // provider/model (mirrors the auto-clear in AgentConfigFields).
+  React.useEffect(() => {
+    if (
+      effortEnvKey &&
+      effortValueIsStale({
+        runtimeId: runtime,
+        thinkingEnvVar: effortEnvKey,
+        providerFieldVisible: llmProviderFieldVisible,
+        provider,
+        model,
+        currentValue: effortCurrentValue,
+      })
+    ) {
+      setEnvVars((prev) => {
+        if (!(effortEnvKey in prev)) return prev;
+        const next = { ...prev };
+        delete next[effortEnvKey];
+        return next;
+      });
+    }
+  }, [
+    effortEnvKey,
+    effortCurrentValue,
+    llmProviderFieldVisible,
+    provider,
+    model,
+    runtime,
+  ]);
+
   // Required credential env keys and file-layer config; silences requirements satisfied in the file layer.
   const { data: runtimeFileConfig } = useRuntimeFileConfigQuery(runtime, {
     enabled: open,
@@ -923,6 +986,40 @@ export function AgentDefinitionDialog({
               />
             ) : null}
           </AnimatePresence>
+
+          {aiConfigurationMode === "custom" &&
+          effortEnvKey &&
+          effortState.visible ? (
+            <div className="space-y-1.5">
+              <label
+                className="text-sm font-medium text-foreground"
+                htmlFor="agent-definition-effort"
+              >
+                Thinking effort
+                <span className={PERSONA_LABEL_OPTIONAL_CLASS}>Optional</span>
+              </label>
+              <PersonaDropdownField
+                disabled={isPending}
+                id="agent-definition-effort"
+                onValueChange={(value) => {
+                  setHasUserChanges(true);
+                  const next = effortSelectionToEnvValue(value);
+                  setEnvVars((prev) => {
+                    const updated = { ...prev };
+                    if (next === null) {
+                      delete updated[effortEnvKey];
+                    } else {
+                      updated[effortEnvKey] = next;
+                    }
+                    return updated;
+                  });
+                }}
+                options={effortState.options}
+                placeholder="Adapter default"
+                value={effortState.selectValue}
+              />
+            </div>
+          ) : null}
 
           {aiConfigurationMode === "defaults" ? (
             <AgentCreateAiDefaultsSummary
