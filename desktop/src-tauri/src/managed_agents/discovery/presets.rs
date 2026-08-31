@@ -151,8 +151,23 @@ pub(super) const PRESET_HARNESSES: &[PresetHarness] = &[
         args: &["--experimental-acp"],
         install_instructions_url: "https://github.com/QwenLM/qwen-code",
         install_hint: "Buzz talks to Qwen Code through its CLI's ACP mode \
-            (qwen --experimental-acp). Install it with \
-            `npm install -g @qwen-code/qwen-code`.",
+            (qwen --experimental-acp). Requires Node.js; then install with \
+            `npm install -g @qwen-code/qwen-code`. Run `qwen` once in a \
+            terminal to sign in before using it.",
+        underlying_cli: None,
+    },
+    PresetHarness {
+        id: "deepseek-harness",
+        label: "DeepSeek Harness",
+        command: "dsh",
+        args: &["--profile", "acp"],
+        install_instructions_url: "https://deepseek-harness.github.io/deepseek-harness/",
+        install_hint: "Buzz talks to DeepSeek Harness through its ACP profile \
+            (dsh --profile acp). Requires Node.js; then install with \
+            `npm install -g @deepseek-ai/dsh`. Developer preview — expect \
+            breaking changes. This is DeepSeek's full coding agent; to use \
+            only the DeepSeek model, pick the \"DeepSeek (API)\" provider \
+            instead.",
         underlying_cli: None,
     },
     PresetHarness {

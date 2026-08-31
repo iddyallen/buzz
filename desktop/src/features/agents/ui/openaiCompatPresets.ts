@@ -47,6 +47,11 @@ export const OPENAI_COMPAT_PRESETS: readonly OpenAiCompatPreset[] = [
     label: "Alibaba Qwen (DashScope)",
     baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
   },
+  {
+    id: "openai-compat-deepseek",
+    label: "DeepSeek (API)",
+    baseUrl: "https://api.deepseek.com/v1",
+  },
 ];
 
 /** Provider dropdown entries for the presets (id = synthetic dropdown value). */

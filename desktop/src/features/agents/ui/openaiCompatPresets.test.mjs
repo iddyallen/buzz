@@ -16,13 +16,15 @@ import { getPersonaProviderOptions } from "./agentConfigOptions.tsx";
 
 const MOONSHOT_URL = "https://api.moonshot.ai/v1";
 const DASHSCOPE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+const DEEPSEEK_URL = "https://api.deepseek.com/v1";
 
-test("presets carry the documented Moonshot and DashScope endpoints", () => {
+test("presets carry the documented Moonshot, DashScope and DeepSeek endpoints", () => {
   const byId = Object.fromEntries(
     OPENAI_COMPAT_PRESETS.map((preset) => [preset.id, preset.baseUrl]),
   );
   assert.equal(byId["openai-compat-moonshot"], MOONSHOT_URL);
   assert.equal(byId["openai-compat-dashscope"], DASHSCOPE_URL);
+  assert.equal(byId["openai-compat-deepseek"], DEEPSEEK_URL);
 });
 
 test("decodeOpenAiCompatPresetSelection matches preset ids only", () => {
@@ -137,5 +139,6 @@ test("preset options are injected into the provider dropdown after openai-compat
   assert.deepEqual(presetIds, [
     "openai-compat-moonshot",
     "openai-compat-dashscope",
+    "openai-compat-deepseek",
   ]);
 });
