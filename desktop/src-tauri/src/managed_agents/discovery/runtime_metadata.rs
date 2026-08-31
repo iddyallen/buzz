@@ -123,4 +123,26 @@ mod tests {
         assert!(codex.adapter_install_instructions_url.contains("codex-acp"));
         assert!(codex.cli_install_hint.contains("Codex CLI"));
     }
+
+    /// T-1.5: the Claude catalog entry declares its real effort authority so
+    /// the desktop config surface and `AcpRuntimeCatalogEntry` IPC projection
+    /// stop treating Claude's effort as a discovery-only native option.
+    /// `BUZZ_ACP_EFFORT_LEVEL` is the canonical spawn-time env var
+    /// (`managed_agents::claude_config::EFFORT_LEVEL_ENV_VAR`), applied via
+    /// `session/set_config_option` once the adapter's `thought_level` configId
+    /// is known — a real, already-functioning mechanism, not a stub.
+    ///
+    /// Claude's `model_env_var` deliberately stays `None`: `ANTHROPIC_MODEL` is
+    /// applied by a separate spawn-time authority
+    /// (`managed_agents::claude_config::apply_claude_model_env`) that must stay
+    /// the sole model authority for local Claude agents, and projecting it here
+    /// would also flip the desktop's `modelIsOptional` gate — see the comment
+    /// on the "claude" entry in `discovery.rs` and `features/agents/AGENTS.md`
+    /// rule 8.
+    #[test]
+    fn claude_declares_effort_env_var_but_not_model_env_var() {
+        let claude = known_acp_runtime_exact("claude").unwrap();
+        assert_eq!(claude.thinking_env_var, Some("BUZZ_ACP_EFFORT_LEVEL"));
+        assert_eq!(claude.model_env_var, None);
+    }
 }

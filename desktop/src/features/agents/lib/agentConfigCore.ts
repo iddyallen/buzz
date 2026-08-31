@@ -71,6 +71,7 @@ export type AgentConfigFieldDescriptor =
       optionSource:
         | "buzzAgentCatalog"
         | "legacyProviderModelCatalog"
+        | "claudeCapabilityManifest"
         | "harnessNative";
       currentPersistence:
         | EnvVarPersistence
@@ -168,6 +169,10 @@ export function deriveNumericDescriptors(
  * The runtime catalog is authoritative for environment-variable application.
  * Harness-native ACP options are named here until discovery exposes them to the
  * desktop; descriptors marked deferred must not be rendered as generic fields.
+ * Claude's effort field is no longer deferred: `BUZZ_ACP_EFFORT_LEVEL` is a
+ * real, already-functioning env-var authority (see
+ * `KnownAcpRuntime.thinking_env_var` on the "claude" entry), not a
+ * discovery-only ACP option — see `features/agents/AGENTS.md` rule 3.
  */
 export function deriveAgentConfigFieldModel({
   config,
@@ -204,32 +209,32 @@ export function deriveAgentConfigFieldModel({
   });
 
   if (runtime?.thinkingEnvVar) {
+    // Claude's effort authority (`BUZZ_ACP_EFFORT_LEVEL`, applied via
+    // `session/set_config_option` once the adapter's `thought_level` configId
+    // is known — see `managed_agents::claude_config`) was declared and
+    // migrated together, so its currentPersistence already matches
+    // targetApplication. Goose has a real native env var
+    // (`GOOSE_THINKING_EFFORT`) too, but its persistence migration is still
+    // pending (PR 2.7) — do not converge it here without doing that work; see
+    // AGENTS.md rule 2.
+    const isClaude = runtime.id === "claude";
+    const persistenceKey = isClaude
+      ? runtime.thinkingEnvVar
+      : BUZZ_AGENT_THINKING_EFFORT;
     fields.push({
       kind: "effort",
-      optionSource:
-        runtime.id === "buzz-agent"
+      optionSource: isClaude
+        ? "claudeCapabilityManifest"
+        : runtime.id === "buzz-agent"
           ? "buzzAgentCatalog"
           : "legacyProviderModelCatalog",
       currentPersistence: {
         kind: "envVar",
-        key: BUZZ_AGENT_THINKING_EFFORT,
+        key: persistenceKey,
       },
       targetApplication: { kind: "envVar", key: runtime.thinkingEnvVar },
       render: "control",
-      value: valueFromEnv(config, BUZZ_AGENT_THINKING_EFFORT),
-    });
-  } else if (runtime?.id === "claude") {
-    fields.push({
-      kind: "effort",
-      optionSource: "harnessNative",
-      currentPersistence: { kind: "unavailable" },
-      targetApplication: {
-        kind: "acpConfigOption",
-        id: "effort",
-        category: "thought_level",
-      },
-      render: "deferredUntilNativeOptionsAvailable",
-      value: null,
+      value: valueFromEnv(config, persistenceKey),
     });
   } else {
     omissions.push({

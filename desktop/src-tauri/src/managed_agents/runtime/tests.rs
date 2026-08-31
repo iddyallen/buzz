@@ -522,9 +522,13 @@ fn runtime_metadata_env_vars_injects_model_and_provider() {
 
 #[test]
 fn runtime_metadata_env_vars_skips_provider_when_locked() {
+    // Pure-helper unit test: model_env_var/provider_env_var are None here to
+    // isolate the provider_locked skip, independent of what any specific
+    // catalog entry declares (claude's own model authority is ANTHROPIC_MODEL,
+    // applied separately by managed_agents::claude_config, not by this helper).
     let vars = runtime_metadata_env_vars(
-        None, // claude has no model_env_var
-        None, // claude has no provider_env_var
+        None,
+        None,
         true, // provider_locked = true
         Some("claude-opus-4-7"),
         Some("anthropic"),
