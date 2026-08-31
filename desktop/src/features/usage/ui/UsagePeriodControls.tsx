@@ -4,7 +4,7 @@ import {
   type UsagePeriod,
   type UsagePeriodPreset,
   addLocalDays,
-  fromDateInputValue,
+  resolveCustomPeriod,
   toDateInputValue,
 } from "@/features/usage/lib/periodBoundaries";
 import { SegmentedControl } from "@/shared/ui/segmented-control";
@@ -53,12 +53,17 @@ export function UsagePeriodControls({
   const selectedValue: PeriodOptionValue =
     period.kind === "preset" ? period.preset : "custom";
 
+  // `resolveCustomPeriod` returns `null` when either date is empty,
+  // partially typed, or otherwise unparseable (e.g. the input was just
+  // cleared). In that case we deliberately do NOT call `onChange` — the
+  // screen keeps showing the last valid period instead of being handed a
+  // broken one, since `<input type="date">` emits `""` mid-edit and that
+  // must never propagate into a `UsagePeriod`.
   const emitCustom = (start: string, end: string) => {
-    onChange({
-      kind: "custom",
-      startDate: fromDateInputValue(start),
-      endDate: fromDateInputValue(end),
-    });
+    const period = resolveCustomPeriod(start, end);
+    if (period) {
+      onChange(period);
+    }
   };
 
   return (

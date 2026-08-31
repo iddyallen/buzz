@@ -18,6 +18,7 @@ export type AgentUsageTableProps = {
   agents: readonly AgentUsage[];
   agentNames: ReadonlyMap<string, string>;
   isLoading: boolean;
+  isError: boolean;
   onSelectAgent: (agentPubkey: string) => void;
 };
 
@@ -51,6 +52,7 @@ export function AgentUsageTable({
   agents,
   agentNames,
   isLoading,
+  isError,
   onSelectAgent,
 }: AgentUsageTableProps) {
   const [sort, setSort] = React.useState<SortState>(DEFAULT_SORT);
@@ -80,6 +82,18 @@ export function AgentUsageTable({
         data-testid="usage-table-loading"
       >
         Loading usage…
+      </p>
+    );
+  }
+
+  // Checked before the empty-list branch below: a failed IPC call also
+  // resolves `agents` to an empty array, and rendering the generic
+  // "No agent usage recorded" copy in that case would be indistinguishable
+  // from a genuinely empty archive.
+  if (isError) {
+    return (
+      <p className="text-sm text-destructive" data-testid="usage-table-error">
+        Couldn't load usage data. Try again later.
       </p>
     );
   }
@@ -124,11 +138,20 @@ export function AgentUsageTable({
         </thead>
         <tbody>
           {sorted.map((agent) => (
+            // biome-ignore lint/a11y/useSemanticElements: a <tr> can't be a <button> (invalid HTML inside <tbody>); role="button" + onKeyDown is the standard pattern for a clickable table row.
             <tr
-              className="cursor-pointer border-b border-border/40 last:border-b-0 hover:bg-muted/40"
+              className="cursor-pointer border-b border-border/40 last:border-b-0 hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
               data-testid={`agent-usage-row-${agent.agentPubkey}`}
               key={agent.agentPubkey}
               onClick={() => onSelectAgent(agent.agentPubkey)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectAgent(agent.agentPubkey);
+                }
+              }}
+              role="button"
+              tabIndex={0}
             >
               <td className="px-3 py-2">
                 <div className="font-medium text-foreground">

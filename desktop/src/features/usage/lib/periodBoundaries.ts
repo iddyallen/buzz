@@ -105,8 +105,10 @@ export function buildLocalMidnightBoundaries(
  *   the general path instead of a hardcoded special case).
  * - Custom periods span `startDate`..`endDate` inclusive. An inverted range
  *   (end before start) is swapped rather than rejected, and the span is
- *   clamped to {@link MAX_CUSTOM_RANGE_DAYS} days so a picker mistake can
- *   never build a request the backend would reject.
+ *   clamped to {@link MAX_CUSTOM_RANGE_DAYS} days — keeping the most recent
+ *   days and trimming the oldest ones — so a picker mistake can never build
+ *   a request the backend would reject, and never does so by silently
+ *   dropping the data closest to "now" in favor of stale history.
  */
 export function boundariesForPeriod(
   period: UsagePeriod,
@@ -128,7 +130,12 @@ export function boundariesForPeriod(
     Math.max(localDayDiff(start, end) + 1, 1),
     MAX_CUSTOM_RANGE_DAYS,
   );
-  return buildLocalMidnightBoundaries(start, dayCount);
+  // When the requested range is longer than the max, keep the most RECENT
+  // `dayCount` days (ending at `end`) rather than the oldest — a picker
+  // mistake that produces an over-long range should still show the data
+  // closest to "now", not silently drop it in favor of stale history.
+  const clampedStart = addLocalDays(end, -(dayCount - 1));
+  return buildLocalMidnightBoundaries(clampedStart, dayCount);
 }
 
 /** `YYYY-MM-DD` in local time, for `<input type="date">` value props. */
@@ -139,8 +146,72 @@ export function toDateInputValue(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-/** Inverse of {@link toDateInputValue}: parses as local midnight, not UTC. */
-export function fromDateInputValue(value: string): Date {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year ?? 1970, (month ?? 1) - 1, day ?? 1);
+/**
+ * Inverse of {@link toDateInputValue}: parses as local midnight, not UTC.
+ *
+ * Returns `null` for anything that isn't a complete, valid `YYYY-MM-DD`
+ * date — most importantly the empty string an `<input type="date">` emits
+ * when cleared or only partially typed. Never falls back to a fabricated
+ * date: the previous implementation used `?? 1970`-style guards that don't
+ * catch this, because a malformed segment parses to `NaN` (via `Number`),
+ * and `NaN` is not nullish, so `NaN ?? 1970` stays `NaN`. That `NaN` then
+ * flowed into `boundariesForPeriod`'s day-diff arithmetic and ultimately
+ * into `Math.min(Math.max(NaN, 1), 366)` — still `NaN` — which made
+ * `buildLocalMidnightBoundaries` throw. Since `boundariesForPeriod` runs
+ * inside a `React.useMemo` on every `UsageScreen` render, that throw took
+ * down the whole dashboard screen with no local error boundary to catch it.
+ * Returning `null` here lets callers (see `resolveCustomPeriod`) refuse to
+ * build a period at all until the input is actually valid, instead of
+ * silently constructing one from a bogus date.
+ */
+export function fromDateInputValue(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return null;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+  const date = new Date(year, month - 1, day);
+  // Guard against calendar rollover (e.g. "2026-02-30"): a valid-looking
+  // string whose fields don't name a real calendar day.
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
+/**
+ * Resolve a custom date-range period from two raw `<input type="date">`
+ * values. Returns `null` when either side is empty, partially typed, or
+ * otherwise unparseable — callers should keep showing the last valid period
+ * (or a clear "enter both dates" state) rather than emit a broken
+ * `UsagePeriod`, since `boundariesForPeriod` requires both dates to resolve
+ * to real `Date`s and must never be handed one built from a bogus fallback.
+ */
+export function resolveCustomPeriod(
+  startValue: string,
+  endValue: string,
+): Extract<UsagePeriod, { kind: "custom" }> | null {
+  const startDate = fromDateInputValue(startValue);
+  const endDate = fromDateInputValue(endValue);
+  if (!startDate || !endDate) {
+    return null;
+  }
+  return { kind: "custom", startDate, endDate };
 }

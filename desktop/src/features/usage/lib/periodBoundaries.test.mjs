@@ -5,6 +5,14 @@
  * 2–367 strictly-increasing boundaries, each adjacent interval <= 48h.
  */
 
+// Pin a DST-observing zone so the "spring forward"/"fall back" tests below
+// actually exercise a DST transition. Without this, a UTC (or other
+// non-DST) CI runner would only prove the timezone-independent property
+// (every boundary lands at local midnight) without ever crossing a
+// transition — silently passing even if the boundary builder regressed to
+// naive `+= 86_400` arithmetic on a machine that observes DST.
+process.env.TZ = "America/New_York";
+
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -16,6 +24,7 @@ import {
   boundariesForPeriod,
   buildLocalMidnightBoundaries,
   fromDateInputValue,
+  resolveCustomPeriod,
   startOfLocalDay,
   toDateInputValue,
 } from "./periodBoundaries.ts";
@@ -129,12 +138,21 @@ test("test_addLocalDays_is_dst_safe_not_fixed_86400_arithmetic", () => {
   // zone); in a zone with no transition in the window the two agree, which
   // is also the DST-safe answer since there was nothing to drift across.
   const naiveResult = new Date(start.getTime() + 7 * 86_400_000);
+  // The offset delta must be measured between `start`'s own offset and the
+  // destination day's offset — NOT `naiveResult`'s offset. A `Date`'s
+  // `getTimezoneOffset()` always reflects whatever zone rule applies at
+  // that instant, so once `naiveResult`'s fixed-ms arithmetic has already
+  // landed past the transition, its offset reads the same as the (correct)
+  // destination's offset — comparing the two would silently cancel the very
+  // drift this test exists to catch, passing vacuously outside a
+  // DST-observing zone (which is exactly how this went unnoticed on a UTC
+  // CI runner before `TZ` was pinned above).
   const offsetDeltaMinutes =
-    naiveResult.getTimezoneOffset() - sevenDaysLater.getTimezoneOffset();
+    start.getTimezoneOffset() - sevenDaysLater.getTimezoneOffset();
   const expectedDriftMs = offsetDeltaMinutes * 60_000;
   assert.equal(
     sevenDaysLater.getTime(),
-    naiveResult.getTime() + expectedDriftMs,
+    naiveResult.getTime() - expectedDriftMs,
     "addLocalDays must land on the calendar-correct local midnight, not naive +86400s*N",
   );
   // Whatever zone the test runs in, the calendar-safe result always stays
@@ -236,4 +254,114 @@ test("test_date_input_value_round_trips", () => {
 
 test("test_date_input_value_pads_single_digit_month_and_day", () => {
   assert.equal(toDateInputValue(new Date(2026, 0, 5)), "2026-01-05");
+});
+
+// ── fromDateInputValue: clearing/partial-typing safety (BLOCKING crash fix) ──
+//
+// A cleared or mid-edit `<input type="date">` emits "" (and jsdom-driven or
+// programmatic writes can emit other malformed strings, e.g. "2026-08-XX"
+// or "2026-13-05"). Before this fix, `fromDateInputValue` parsed each
+// segment with a bare `Number(...)` and guarded only with `?? 1970`-style
+// nullish coalescing. That guard does not catch `NaN` — `NaN` is not
+// nullish — so a malformed segment produced a `NaN` field on the returned
+// `Date`, which was NOT itself thrown here, but poisoned everything
+// downstream: `boundariesForPeriod`'s day-diff arithmetic (`localDayDiff`)
+// turns into `NaN`, `Math.min(Math.max(NaN, 1), 366)` stays `NaN`, and
+// `buildLocalMidnightBoundaries` explicitly throws for a non-integer
+// `dayCount`. Since `boundariesForPeriod` runs inside a `React.useMemo` on
+// every `UsageScreen` render, that throw crashed the whole dashboard with
+// no local error boundary — reproduced directly below with the pre-fix
+// parsing logic, then proven fixed against the real exports.
+
+test("test_fromDateInputValue_returns_null_for_empty_string", () => {
+  assert.equal(fromDateInputValue(""), null);
+});
+
+test("test_fromDateInputValue_returns_null_for_partially_typed_input", () => {
+  // Missing day/month segments, the shapes a mid-edit or partially-cleared
+  // date input can produce.
+  assert.equal(fromDateInputValue("2026-"), null);
+  assert.equal(fromDateInputValue("2026-08"), null);
+  assert.equal(fromDateInputValue("2026-08-"), null);
+  assert.equal(fromDateInputValue("--"), null);
+});
+
+test("test_fromDateInputValue_returns_null_for_non_numeric_segments", () => {
+  // Not producible by a native <input type="date"> in a real browser, but
+  // reachable via a programmatic/test write — must not throw or silently
+  // fabricate a date.
+  assert.equal(fromDateInputValue("2026-08-XX"), null);
+});
+
+test("test_fromDateInputValue_returns_null_for_impossible_calendar_dates", () => {
+  assert.equal(fromDateInputValue("2026-13-01"), null);
+  assert.equal(fromDateInputValue("2026-02-30"), null);
+});
+
+test("test_fromDateInputValue_never_produces_the_pre_fix_NaN_crash_repro", () => {
+  // Reproduces the exact pre-fix implementation to prove it really did
+  // crash on empty/malformed input, then proves the real (fixed) export
+  // does not.
+  function preFixFromDateInputValue(value) {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year ?? 1970, (month ?? 1) - 1, day ?? 1);
+  }
+  function preFixBoundariesForPeriod(startValue, endValue) {
+    const startDate = preFixFromDateInputValue(startValue);
+    const endDate = preFixFromDateInputValue(endValue);
+    return boundariesForPeriod({ kind: "custom", startDate, endDate });
+  }
+
+  // The malformed-segment case throws even pre-fix, via NaN propagating
+  // into buildLocalMidnightBoundaries's dayCount guard.
+  assert.throws(() => preFixBoundariesForPeriod("2026-08-XX", "2026-08-10"));
+
+  // The real fix: this can never reach boundariesForPeriod with a bad Date
+  // at all, because fromDateInputValue returns null and resolveCustomPeriod
+  // refuses to build a period until both sides parse.
+  assert.equal(resolveCustomPeriod("2026-08-XX", "2026-08-10"), null);
+  assert.equal(resolveCustomPeriod("", "2026-08-10"), null);
+  assert.equal(resolveCustomPeriod("2026-08-10", ""), null);
+  assert.equal(resolveCustomPeriod("", ""), null);
+});
+
+// ── resolveCustomPeriod ──────────────────────────────────────────────────────
+
+test("test_resolveCustomPeriod_builds_a_period_when_both_dates_parse", () => {
+  const period = resolveCustomPeriod("2026-08-01", "2026-08-10");
+  assert.ok(period);
+  assert.equal(period.kind, "custom");
+  assert.equal(toDateInputValue(period.startDate), "2026-08-01");
+  assert.equal(toDateInputValue(period.endDate), "2026-08-10");
+  // And the resulting period is safe to resolve to boundaries without
+  // throwing.
+  assert.doesNotThrow(() => boundariesForPeriod(period));
+});
+
+test("test_resolveCustomPeriod_refuses_when_either_side_is_empty_or_partial", () => {
+  assert.equal(resolveCustomPeriod("", "2026-08-10"), null);
+  assert.equal(resolveCustomPeriod("2026-08-10", ""), null);
+  assert.equal(resolveCustomPeriod("2026-08-", "2026-08-10"), null);
+  assert.equal(resolveCustomPeriod("", ""), null);
+});
+
+// ── boundariesForPeriod: custom-range recency clamp ──────────────────────────
+
+test("test_boundariesForPeriod_custom_clamp_keeps_most_recent_days", () => {
+  // An over-long range must keep the days closest to `endDate`, not the
+  // oldest ones near `startDate` — dropping the most recent data on a
+  // picker mistake is backwards from user intent.
+  const boundaries = boundariesForPeriod({
+    kind: "custom",
+    startDate: new Date(2000, 0, 1),
+    endDate: new Date(2026, 7, 30),
+  });
+  const lastBoundary = new Date(boundaries[boundaries.length - 1] * 1000);
+  const tomorrow = addLocalDays(startOfLocalDay(new Date(2026, 7, 30)), 1);
+  assert.equal(
+    lastBoundary.getTime(),
+    tomorrow.getTime(),
+    "clamped range must still end at endDate's following midnight",
+  );
+  assertValidForBackend(boundaries);
 });

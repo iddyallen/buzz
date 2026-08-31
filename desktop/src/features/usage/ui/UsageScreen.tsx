@@ -103,16 +103,25 @@ export function UsageScreen() {
             onBack={clearSelectedAgent}
           />
         ) : (
-          <p className="text-sm text-muted-foreground">
-            {detailQuery.isLoading
-              ? "Loading agent usage…"
-              : "No usage recorded for this agent in the selected period."}
+          <p
+            className={
+              detailQuery.isError
+                ? "text-sm text-destructive"
+                : "text-sm text-muted-foreground"
+            }
+          >
+            {detailQuery.isError
+              ? "Couldn't load usage data for this agent. Try again later."
+              : detailQuery.isLoading
+                ? "Loading agent usage…"
+                : "No usage recorded for this agent in the selected period."}
           </p>
         )
       ) : (
         <AgentUsageTable
           agentNames={agentNames}
           agents={overviewQuery.data?.agents ?? []}
+          isError={overviewQuery.isError}
           isLoading={overviewQuery.isLoading}
           onSelectAgent={selectAgent}
         />

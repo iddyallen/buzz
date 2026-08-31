@@ -28,13 +28,18 @@ import type {
 /**
  * Sum a list of `UsageField`s.
  *
- * - Empty input: `{ value: null, incomplete: false }` — "no data", matching
- *   the wire meaning of an unreported field.
- * - Any input with `value: null`: the true total can't be computed (at least
- *   one contributor's count is entirely missing), so the sum is unknown too
- *   — `{ value: null, incomplete: true }`. `incomplete: true` here signals
- *   "this total omits at least one contributor," distinct from the wire's
- *   own not-reported case, but both render identically (see module doc).
+ * - Empty input (no contributors at all): `{ value: null, incomplete: false }`
+ *   — "no data", matching the wire meaning of an unreported field.
+ * - Non-empty input with a mix of known and unknown contributors: the known
+ *   values are summed and the result is marked `{ incomplete: true }` — the
+ *   same "at-least-this-much" representation used elsewhere for partial
+ *   data (rendered with a trailing "+"), rather than collapsing an otherwise
+ *   informative sum down to "Unknown" just because one contributor is
+ *   missing.
+ * - Non-empty input where every contributor is unknown: `{ value: null,
+ *   incomplete: true }` — there is nothing to sum, so the total stays null,
+ *   but `incomplete: true` still distinguishes "we had contributors and all
+ *   were unknown" from the genuinely-empty-list case above.
  * - All inputs known: sums with `BigInt`, never `Number`. `incomplete` is
  *   true iff any contributing field was itself marked incomplete (an
  *   undercount propagates to the total).
@@ -45,12 +50,18 @@ export function sumUsageFields(fields: readonly UsageField[]): UsageField {
   }
   let total = 0n;
   let anyIncomplete = false;
+  let anyKnown = false;
   for (const field of fields) {
     if (field.incomplete) anyIncomplete = true;
     if (field.value === null) {
-      return { value: null, incomplete: true };
+      anyIncomplete = true;
+      continue;
     }
+    anyKnown = true;
     total += BigInt(field.value);
+  }
+  if (!anyKnown) {
+    return { value: null, incomplete: true };
   }
   return { value: total.toString(), incomplete: anyIncomplete };
 }
@@ -120,6 +131,22 @@ const COST_FORMATTER_PRECISE = new Intl.NumberFormat("en-US", {
 export const UNKNOWN_USAGE_LABEL = "Unknown";
 
 /**
+ * Parse a `UsageField`/sort-column string value as a `BigInt`, the same way
+ * {@link formatTokenField} does — `BigInt(...)` throws on a malformed
+ * numeric string, so every call site that parses one of these strings must
+ * go through this guarded helper rather than calling `BigInt` directly.
+ * Returns `null` for anything unparseable, which callers treat the same as
+ * a wire-level `null` (unknown).
+ */
+export function tryParseTokenBigInt(value: string): bigint | null {
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Format a `UsageField` for display.
  *
  * `value === null` always renders as {@link UNKNOWN_USAGE_LABEL}, regardless
@@ -131,12 +158,8 @@ export function formatTokenField(
   { compact = false }: { compact?: boolean } = {},
 ): string {
   if (field.value === null) return UNKNOWN_USAGE_LABEL;
-  let parsed: bigint;
-  try {
-    parsed = BigInt(field.value);
-  } catch {
-    return UNKNOWN_USAGE_LABEL;
-  }
+  const parsed = tryParseTokenBigInt(field.value);
+  if (parsed === null) return UNKNOWN_USAGE_LABEL;
   const formatted =
     compact && parsed >= COMPACT_THRESHOLD
       ? COMPACT_TOKEN_FORMATTER.format(parsed)
@@ -175,11 +198,33 @@ function usageColumnValue(
 }
 
 /**
+ * Resolve a row's sort key for `column`: a comparable `bigint`/`number`, or
+ * `null` if the row has no usable value for that column — either the wire
+ * value itself is `null` (unreported), or (tokens column only) it's a
+ * non-null string that isn't valid `BigInt` input. `formatTokenField` treats
+ * that same malformed-string case as "Unknown" via a guarded `BigInt` parse
+ * ({@link tryParseTokenBigInt}); the comparator must use the same guarded
+ * parse rather than calling `BigInt` directly, or a malformed value that
+ * displays fine as "Unknown" would instead throw inside `Array.sort`.
+ */
+function usageSortKey(
+  usage: ReportedUsage,
+  column: UsageSortColumn,
+): bigint | number | null {
+  const raw = usageColumnValue(usage, column);
+  if (raw === null) return null;
+  return column === "tokens"
+    ? tryParseTokenBigInt(raw as string)
+    : (raw as number);
+}
+
+/**
  * Sort any `{ usage: ReportedUsage }` collection by total tokens or
  * estimated cost — shared by the agent overview table (T-1.16) and the
  * per-model breakdown (T-1.17), which both carry a `usage` field.
  *
- * Unknown values (`totalTokens`/`estimatedCostUsd` is `null` for that row)
+ * Unknown values (`totalTokens`/`estimatedCostUsd` is `null` for that row,
+ * or — tokens column only — a malformed non-`BigInt`-parseable string)
  * always sort to the bottom, regardless of `direction` — an unknown amount
  * is not "less than zero," so it must never be presented as the smallest
  * known value under an ascending sort.
@@ -190,16 +235,16 @@ export function sortByReportedUsage<T extends { usage: ReportedUsage }>(
   direction: UsageSortDirection,
 ): T[] {
   return [...items].sort((a, b) => {
-    const aValue = usageColumnValue(a.usage, column);
-    const bValue = usageColumnValue(b.usage, column);
+    const aValue = usageSortKey(a.usage, column);
+    const bValue = usageSortKey(b.usage, column);
     const aKnown = aValue !== null;
     const bKnown = bValue !== null;
     if (aKnown !== bKnown) return aKnown ? -1 : 1;
     if (!aKnown || !bKnown) return 0;
 
     const cmp =
-      column === "tokens"
-        ? compareBigInt(BigInt(aValue as string), BigInt(bValue as string))
+      typeof aValue === "bigint" && typeof bValue === "bigint"
+        ? compareBigInt(aValue, bValue)
         : (aValue as number) - (bValue as number);
     return direction === "desc" ? -cmp : cmp;
   });

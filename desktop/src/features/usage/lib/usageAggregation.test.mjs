@@ -17,6 +17,7 @@ import {
   sumCostFields,
   sumReportedUsage,
   sumUsageFields,
+  tryParseTokenBigInt,
   usageFieldShares,
 } from "./usageAggregation.ts";
 
@@ -77,10 +78,14 @@ test("test_sumUsageFields_empty_list_is_unreported_not_zero", () => {
   assert.equal(sum.incomplete, false);
 });
 
-test("test_sumUsageFields_any_unknown_input_makes_total_unknown", () => {
+test("test_sumUsageFields_mixed_known_and_unknown_sums_known_and_marks_incomplete", () => {
   // One agent's count is entirely unreported (value: null, incomplete:
-  // false per the wire's own "not reported" meaning) — the total must NOT
-  // silently treat that contributor as zero.
+  // false per the wire's own "not reported" meaning). The total must NOT
+  // silently treat that contributor as zero — but it also must not collapse
+  // an otherwise-known sum down to "Unknown" just because one contributor
+  // is missing. It should sum what IS known and flag the gap the same way
+  // `incomplete: true` already does elsewhere ("150+" rather than a hard
+  // "Unknown").
   const sum = sumUsageFields([
     usageField("100"),
     usageField(null, false),
@@ -88,9 +93,26 @@ test("test_sumUsageFields_any_unknown_input_makes_total_unknown", () => {
   ]);
   assert.equal(
     sum.value,
-    null,
-    "a total missing a contributor is unknown, not a partial sum",
+    "150",
+    "a total missing one contributor should still sum the known contributors",
   );
+  assert.equal(
+    sum.incomplete,
+    true,
+    "the gap must be surfaced via incomplete, not hidden by summing as if the missing contributor were zero",
+  );
+});
+
+test("test_sumUsageFields_all_null_contributors_stays_null_but_incomplete", () => {
+  // Every contributor unknown: there is nothing to sum, so value stays
+  // null — but incomplete:true still distinguishes "we had contributors,
+  // all unknown" from the genuinely-empty-list case (see next test), where
+  // there is no gap to report at all.
+  const sum = sumUsageFields([
+    usageField(null, false),
+    usageField(null, false),
+  ]);
+  assert.equal(sum.value, null);
   assert.equal(sum.incomplete, true);
 });
 
@@ -268,6 +290,44 @@ test("test_sortAgentsByUsage_cost_column_uses_estimatedCostUsd", () => {
     sorted.map((a) => a.agentPubkey),
     ["pricey", "cheap"],
   );
+});
+
+test("test_sortAgentsByUsage_malformed_token_string_sorts_last_without_throwing", () => {
+  // A malformed numeric string (not producible by the wire today, but
+  // defense-in-depth): formatTokenField already renders it as "Unknown" via
+  // a guarded BigInt parse. The sort comparator must use that same guarded
+  // parse — previously it called `BigInt(...)` directly and would throw
+  // inside Array.sort for exactly this input, crashing the table instead of
+  // just showing "Unknown" like the cell itself does.
+  const agents = [
+    agentUsage("known-low", reportedUsage({ totalTokens: usageField("10") })),
+    agentUsage(
+      "malformed",
+      reportedUsage({ totalTokens: usageField("not-a-number") }),
+    ),
+    agentUsage("known-high", reportedUsage({ totalTokens: usageField("999") })),
+  ];
+
+  assert.doesNotThrow(() => sortAgentsByUsage(agents, "tokens", "desc"));
+  const desc = sortAgentsByUsage(agents, "tokens", "desc");
+  assert.equal(
+    desc[desc.length - 1].agentPubkey,
+    "malformed",
+    "an unparseable value must sort last, same as a null/unknown value",
+  );
+
+  assert.doesNotThrow(() => sortAgentsByUsage(agents, "tokens", "asc"));
+  const asc = sortAgentsByUsage(agents, "tokens", "asc");
+  assert.equal(
+    asc[asc.length - 1].agentPubkey,
+    "malformed",
+    "must stay last even ascending, matching formatTokenField's Unknown rendering for the same value",
+  );
+});
+
+test("test_tryParseTokenBigInt_valid_and_invalid_input", () => {
+  assert.equal(tryParseTokenBigInt("123"), 123n);
+  assert.equal(tryParseTokenBigInt("not-a-number"), null);
 });
 
 test("test_sortAgentsByUsage_does_not_mutate_input_array", () => {
