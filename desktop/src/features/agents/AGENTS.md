@@ -47,11 +47,33 @@ with a TypeScript lookup table or an id comparison in a component.
    `BUZZ_AGENT_THINKING_EFFORT` literal in UI code. `currentPersistence` is
    where the value lives *today*; `targetApplication` is how the harness
    *should* receive it. They intentionally differ until PR 2.7 migrates
-   Goose/Claude — do not "fix" one to match the other without doing the
-   migration work.
+   Goose — do not "fix" one to match the other without doing the migration
+   work. **Claude was migrated in T-1.5/T-1.6**: `KnownAcpRuntime` declares
+   `thinking_env_var: Some("BUZZ_ACP_EFFORT_LEVEL")` for the `"claude"` entry
+   — a real, already-functioning spawn-time authority
+   (`managed_agents::claude_config::EFFORT_LEVEL_ENV_VAR`, applied via
+   `session/set_config_option` once the adapter's `thought_level` configId is
+   known), not a discovery-only placeholder — so Claude's `currentPersistence`
+   and `targetApplication` are the same key. Its `optionSource` is
+   `"legacyProviderModelCatalog"` (`agentConfigCore.ts`) — Claude's effort
+   options resolve from the same shared `model-capabilities.json` (keyed on
+   provider `anthropic`, see `ui/modelCapabilities.ts`) that variant already
+   names for other harnesses; there is no separate Claude-specific manifest,
+   so this does not introduce a new `optionSource` variant. Claude's
+   `model_env_var` deliberately stays unset: `ANTHROPIC_MODEL` is a separate
+   spawn-time authority (`managed_agents::claude_config::apply_claude_model_env`)
+   kept exclusive of the live ACP-switch channel other harnesses share, and
+   projecting it as `model_env_var` would also flip `AgentConfigFields`'s
+   `modelIsOptional` gate (keyed on `targetApplication.kind === "acpNative"`)
+   to required — see rule 8. Model version selection for Claude already works
+   via live ACP discovery; only effort was blocked.
 3. **Field absence has a named reason, not a boolean.** Codex effort is
-   `ownedByModelId`; Claude effort is `deferredUntilNativeOptionsAvailable`.
-   New absences get new named reasons in `AgentConfigOmission` /
+   `ownedByModelId`; a harness whose catalog entry has no thinking env var
+   (e.g. Claude before T-1.5, or any future harness with genuinely no effort
+   authority) is `unsupportedByHarness`. `deferredUntilNativeOptionsAvailable`
+   remains a valid `render` value for a harness whose effort truly requires a
+   live ACP session with no env-var fallback — it no longer applies to
+   Claude. New absences get new named reasons in `AgentConfigOmission` /
    `render` — never a `showX` prop.
 4. **The clearing policy is the named types.** `onContextChange:
    "resetDependentValues"` (user changed harness/provider → dependent values
@@ -306,6 +328,10 @@ with a TypeScript lookup table or an id comparison in a component.
   restoration, zero-write Skip, Next save failure/retry, navigation, and
   successful-empty vs failed optional-model discovery.
 - Rust: `runtime_metadata_env_vars` tests pin spawn-time key application.
+- Rust: `claude_declares_effort_env_var_but_not_model_env_var`
+  (`managed_agents/discovery/runtime_metadata.rs`) pins that the `"claude"`
+  catalog entry declares `thinking_env_var` but not `model_env_var` — update
+  deliberately, not as a side effect, if either changes.
 - Rust: persona sharing/retention tests pin relay+owner scoping, durable
   enqueue errors, relay rejection/unavailability, and accepted publication.
 - Rust: `definition_validation` and inbound persona tests pin the shared

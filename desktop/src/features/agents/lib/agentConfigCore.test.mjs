@@ -93,10 +93,23 @@ test("Goose exposes provider, model, and its real effort application key", () =>
   });
 });
 
-test("Claude models effort as a deferred native ACP option", () => {
+test("Claude exposes a real effort control via BUZZ_ACP_EFFORT_LEVEL (no longer deferred)", () => {
+  // KnownAcpRuntime declares thinking_env_var for "claude" as
+  // BUZZ_ACP_EFFORT_LEVEL — a real, already-functioning spawn-time env var
+  // (see managed_agents::claude_config), not a discovery-only ACP option.
+  // The fixture carries a BUZZ_ACP_EFFORT_LEVEL entry (distinct from the
+  // module-level `config`'s BUZZ_AGENT_THINKING_EFFORT) so this test proves
+  // the effort *value* actually round-trips through Claude's persistence
+  // key, not just the descriptor shape.
+  const claudeConfig = {
+    ...config,
+    env_vars: { ...config.env_vars, BUZZ_ACP_EFFORT_LEVEL: "high" },
+  };
   const model = deriveAgentConfigFieldModel({
-    config,
-    runtime: runtime("claude"),
+    config: claudeConfig,
+    runtime: runtime("claude", {
+      thinkingEnvVar: "BUZZ_ACP_EFFORT_LEVEL",
+    }),
     scope: "global",
   });
 
@@ -104,18 +117,48 @@ test("Claude models effort as a deferred native ACP option", () => {
     model.fields.map((item) => item.kind),
     ["model", "effort"],
   );
+  assert.equal(field(model, "effort").render, "control");
   assert.equal(
-    field(model, "effort").render,
-    "deferredUntilNativeOptionsAvailable",
+    field(model, "effort").optionSource,
+    "legacyProviderModelCatalog",
   );
+  assert.equal(field(model, "effort").value, "high");
+  // Claude's effort authority was migrated in full: currentPersistence matches
+  // targetApplication (unlike Goose, whose migration is still pending — see
+  // the "legacy env vars" persistence test above and AGENTS.md rule 2).
   assert.deepEqual(field(model, "effort").currentPersistence, {
-    kind: "unavailable",
+    kind: "envVar",
+    key: "BUZZ_ACP_EFFORT_LEVEL",
   });
   assert.deepEqual(field(model, "effort").targetApplication, {
-    kind: "acpConfigOption",
-    id: "effort",
-    category: "thought_level",
+    kind: "envVar",
+    key: "BUZZ_ACP_EFFORT_LEVEL",
   });
+});
+
+test("no selected runtime (catalog loading/error) omits effort rather than guessing", () => {
+  // The real "metadata unknown" case (AGENTS.md rule 5) is `selectedRuntime`
+  // being undefined while the ACP runtime catalog query is loading or
+  // errored (see AgentConfigFields.tsx, RuntimeCatalogStatus) — NOT a
+  // resolved "claude" entry with a blank thinkingEnvVar, which can no longer
+  // occur post-merge: the catalog ships in the same binary, so a resolved
+  // "claude" entry always carries thinking_env_var. This exercises the
+  // actual gate: no structured effort control renders, and it falls back to
+  // the generic omission bucket rather than a stale acpConfigOption
+  // placeholder.
+  const model = deriveAgentConfigFieldModel({
+    config,
+    runtime: undefined,
+    scope: "global",
+  });
+
+  assert.deepEqual(
+    model.fields.map((item) => item.kind),
+    ["model"],
+  );
+  assert.deepEqual(model.omissions, [
+    { kind: "effort", reason: "unsupportedByHarness" },
+  ]);
 });
 
 test("Codex omits separate effort because model IDs own it", () => {
@@ -444,25 +487,37 @@ test("structuredEnvKeys_per_agent_goose_excludes_effort_key_discriminating_invar
   );
 });
 
-test("structuredEnvKeys_deferred_effort_excluded_from_result", () => {
-  // A deferred effort descriptor (render !== "control") must not contribute
-  // its key to the hidden set — the value has no editor on this surface.
-  const claudeModel = deriveAgentConfigFieldModel({
+test("structuredEnvKeys_omitted_effort_excluded_from_result", () => {
+  // Codex omits effort entirely (ownedByModelId) — the model field itself
+  // isn't env-var-backed either, so no keys should be hidden at all.
+  const codexModel = deriveAgentConfigFieldModel({
     config,
-    runtime: runtime("claude"),
+    runtime: runtime("codex"),
     scope: "global",
   });
 
-  const allDescriptors = claudeModel.fields; // includes deferred effort
-  const keys = structuredEnvKeys(allDescriptors);
+  const keys = structuredEnvKeys(codexModel.fields);
 
-  // Claude's deferred effort has currentPersistence.kind === "unavailable"
-  // and render === "deferredUntilNativeOptionsAvailable"; no key emitted.
   assert.equal(
     keys.length,
     0,
-    "deferred effort and model descriptors must not contribute hidden keys",
+    "omitted effort and acpNative model descriptors must not contribute hidden keys",
   );
+});
+
+test("structuredEnvKeys_non_control_render_excluded_from_result", () => {
+  // General invariant behind the (now-unreachable-for-claude, but still
+  // type-supported) "deferred" render state: any descriptor whose render is
+  // not "control" must not contribute its key to the hidden set, regardless
+  // of which harness or field kind produced it — see structuredEnvKeys().
+  const claudeModelWithoutThinkingEnvVar = deriveAgentConfigFieldModel({
+    config,
+    runtime: runtime("claude"), // thinkingEnvVar unset -> effort omitted, not deferred
+    scope: "global",
+  });
+
+  const keys = structuredEnvKeys(claudeModelWithoutThinkingEnvVar.fields);
+  assert.equal(keys.length, 0);
 });
 
 // ── deriveNumericDescriptors: standalone helper ───────────────────────────

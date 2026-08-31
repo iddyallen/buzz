@@ -327,6 +327,83 @@ fn b4_none_canonical_effort_does_not_surface() {
     );
 }
 
+// ── Claude real-catalog effort precedence (review fix, PR #24) ───────────────
+//
+// Claude's catalog entry (`discovery.rs`) declares
+// `thinking_env_var: Some("BUZZ_ACP_EFFORT_LEVEL")` — the SAME constant
+// `claude_config::EFFORT_LEVEL_ENV_VAR` that spawn-time `apply_effort_env`
+// writes, and it writes it AFTER `descriptor.env` (see `runtime.rs`), so the
+// canonical `record.effort_level` always wins over a raw
+// `BUZZ_ACP_EFFORT_LEVEL` env row at actual spawn time. Unlike the
+// `BUZZ_AGENT_THINKING_EFFORT`/`GOOSE_THINKING_EFFORT` cases above (a
+// different env var that `apply_effort_env` never touches, so the raw env
+// row IS what applies), the reader's tier order for Claude must rank
+// canonical above raw env, or the panel would display a value the next
+// spawn will not actually launch with. These tests use the real catalog
+// entry (`known_acp_runtime_exact("claude")`), not a synthetic
+// `KnownAcpRuntime` fixture, so a catalog change to Claude's
+// `thinking_env_var` would be caught here.
+
+fn claude_rt() -> &'static KnownAcpRuntime {
+    crate::managed_agents::discovery::known_acp_runtime_exact("claude")
+        .expect("claude must be in catalog")
+}
+
+/// Canonical `effort_level` (set via the panel's `EffortPickerField`) must
+/// win over a conflicting raw `BUZZ_ACP_EFFORT_LEVEL` env row (e.g. set via
+/// the advanced env-vars editor), matching what `apply_effort_env` actually
+/// applies at spawn — the inverse of `b4_record_env_var_wins_over_canonical_effort_level`
+/// above, which is correct for harnesses on a *different* env var.
+#[test]
+fn claude_canonical_effort_level_wins_over_conflicting_raw_env_row() {
+    let mut record = test_record();
+    record.effort_level = Some("low".to_string());
+    record
+        .env_vars
+        .insert("BUZZ_ACP_EFFORT_LEVEL".to_string(), "max".to_string());
+    let runtime = claude_rt();
+
+    let surface = read_config_surface(&record, Some(runtime), None, &no_tiers(), None);
+
+    let effort = surface
+        .normalized
+        .thinking_effort
+        .expect("effort must surface for claude");
+    assert_eq!(
+        effort.value.as_deref(),
+        Some("low"),
+        "canonical effort_level must win — this is what the next spawn actually applies"
+    );
+    assert_eq!(effort.origin, ConfigOrigin::BuzzExplicit);
+    assert_eq!(
+        effort.overridden_value.as_deref(),
+        Some("max"),
+        "the shadowed raw env row surfaces as the overridden value"
+    );
+}
+
+/// A not-yet-spawned Claude agent (`is_pre_spawn`, no live ACP session) must
+/// report `write_via: ReadOnly` for thinking effort, not
+/// `RespawnWithEnvVar`. AGENTS.md rule 14 (desktop/src/features/agents/AGENTS.md)
+/// designates `EffortPickerField`'s `persistAgentEffortLevel` as the sole
+/// write path for effort; the reader must not open a second one just
+/// because Claude now has a real `thinking_env_var`.
+#[test]
+fn claude_pre_spawn_thinking_effort_write_via_stays_read_only() {
+    let mut record = test_record();
+    record.effort_level = Some("medium".to_string());
+    let runtime = claude_rt();
+
+    // is_pre_spawn is derived from `session_cache.is_none()`.
+    let surface = read_config_surface(&record, Some(runtime), None, &no_tiers(), None);
+
+    let effort = surface
+        .normalized
+        .thinking_effort
+        .expect("effort must surface for claude");
+    assert_eq!(effort.write_via, ConfigWriteMechanism::ReadOnly);
+}
+
 // ── CLAUDE_CONFIG_DIR path resolution (#3493) ─────────────────────────────────
 
 #[test]

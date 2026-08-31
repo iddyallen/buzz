@@ -137,6 +137,20 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         adapter_install_hint: "Buzz talks to the Claude Code CLI through an ACP adapter. Install it with: npm install -g @agentclientprotocol/claude-agent-acp.",
         skill_dir: Some(".claude/skills"),
         supports_acp_model_switching: false,
+        // Model selection for local Claude Code agents is not projected as a
+        // normal catalog env var: `ANTHROPIC_MODEL` is the A1 spawn-time
+        // authority (see `managed_agents::claude_config::apply_claude_model_env`),
+        // applied unconditionally for local claude agents and deliberately
+        // exclusive of `BUZZ_ACP_MODEL` (the live ACP-switch channel other
+        // harnesses share). Declaring it here as `model_env_var` would also flip
+        // `AgentConfigFields`'s `modelIsOptional` (keyed on
+        // `targetApplication.kind === "acpNative"`) to `false`, silently making
+        // model selection mandatory in Create/Defaults/onboarding — a product
+        // behavior change the T-1.5..T-1.8 effort-focused work did not intend
+        // and the rule-8 onboarding e2e contract does not cover. Model version
+        // selection already works today via live ACP discovery
+        // (`usePersonaModelDiscovery`), so this stays `None` on purpose; see
+        // `features/agents/AGENTS.md` rule 8 before changing it.
         model_env_var: None,
         provider_env_var: None,
         provider_locked: true,
@@ -144,7 +158,16 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         config_file_path: Some("~/.claude/settings.json"),
         config_file_format: Some("json"),
         supports_acp_native_config: false,
-        thinking_env_var: None,
+        // B5 contract (`managed_agents::claude_config::EFFORT_LEVEL_ENV_VAR`):
+        // `BUZZ_ACP_EFFORT_LEVEL` is the canonical persisted startup-effort
+        // authority for local agents, applied via `session/set_config_option`
+        // once the adapter's `thought_level` configId is known. Unlike the
+        // model authority above, declaring it here is safe: it only makes the
+        // real, already-functioning env var visible to the config-surface
+        // projection and the pre-session Global Defaults / Create / persona
+        // effort control — it does not change any required/optional field
+        // semantics.
+        thinking_env_var: Some("BUZZ_ACP_EFFORT_LEVEL"),
         max_tokens_env_var: None,
         context_limit_env_var: None,
         max_rounds_env_var: None,
