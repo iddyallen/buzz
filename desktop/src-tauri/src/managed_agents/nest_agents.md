@@ -18,6 +18,8 @@ Filenames: `ALL_CAPS_WITH_UNDERSCORES.md` (e.g., `OAUTH_FLOW_NOTES.md`).
 
 The bundled CLI is your primary tool interface — run its `--help` command for usage. The CLI skill file has the full reference.
 
+**Tracking work:** a request to "add a task", "create a todo", or put an item "on the board" means the channel's Kanban board — use `buzz kanban add --channel <uuid> --title "…"` (see `buzz kanban --help`). `buzz issues` is only for bugs/work items *inside a specific git repository*; never use it for a plain task.
+
 ## Knowledge File Conventions
 
 Files in `GUIDES/`, `PLANS/`, `RESEARCH/`, `WORK_LOGS/` should include YAML frontmatter:
