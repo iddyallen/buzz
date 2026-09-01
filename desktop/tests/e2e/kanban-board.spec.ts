@@ -59,7 +59,7 @@ test.describe("kanban board", () => {
       .getByTestId("kanban-card");
     await expect(card).toHaveText(/Draft the API/);
 
-    await card.getByRole("button", { name: "Draft the API" }).click();
+    await card.click();
     await expect(page.getByTestId("kanban-card-editor")).toBeVisible();
     // The column picker is the first "outline" combobox in the editor.
     await page.getByRole("button", { name: "To do" }).click();

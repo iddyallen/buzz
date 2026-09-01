@@ -37,6 +37,9 @@ export function useChannelKanbanBoardQuery(channel: Channel | null) {
     queryKey: channelKanbanBoardQueryKey(channelId),
     queryFn: () => getChannelKanbanBoard(channelId),
     staleTime: KANBAN_FOCUS_STALE_TIME_MS,
+    // The board dialog is opened on demand; always show the latest state on
+    // open rather than a cache from a previous session.
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
 }
@@ -68,6 +71,10 @@ export function useChannelKanbanQuery(channel: Channel | null) {
     queryFn: () => getChannelKanbanCards(channelId),
     refetchInterval,
     staleTime: KANBAN_FOCUS_STALE_TIME_MS,
+    // Re-fetch every time the board dialog mounts — an agent (or another
+    // client) may have moved cards while it was closed, and the live
+    // subscription only covers the window where the dialog is open.
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
 }

@@ -621,6 +621,11 @@ function DraggableCard({
   });
 
   return (
+    // The whole card is both the drag surface and the click-to-edit target.
+    // dnd-kit's `attributes` already make this a keyboard-operable button; a
+    // real <button> element can't host the drag listeners, so the a11y-role
+    // lint is suppressed here deliberately.
+    // biome-ignore lint/a11y/useSemanticElements: draggable card cannot be a <button>
     <div
       ref={(node) => {
         setNodeRef(node);
@@ -628,14 +633,25 @@ function DraggableCard({
       }}
       {...attributes}
       {...listeners}
-      className={cn("touch-none rounded-md", isDragging && "opacity-30")}
+      className={cn(
+        "cursor-pointer touch-none rounded-md",
+        isDragging && "opacity-30",
+      )}
+      onClick={onEdit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onEdit();
+        }
+      }}
+      role="button"
+      tabIndex={0}
     >
       <CardTile
         card={card}
         members={members}
         profiles={profiles}
         currentPubkey={currentPubkey}
-        onEdit={onEdit}
         onOpenSource={onOpenSource}
       />
     </div>
@@ -647,7 +663,6 @@ function CardTile({
   members,
   profiles,
   currentPubkey,
-  onEdit,
   onOpenSource,
   overlay,
 }: {
@@ -655,7 +670,6 @@ function CardTile({
   members: ChannelMember[];
   profiles?: UserProfileLookup;
   currentPubkey?: string;
-  onEdit?: () => void;
   onOpenSource?: (messageId: string) => void;
   overlay?: boolean;
 }) {
@@ -684,17 +698,7 @@ function CardTile({
       )}
       data-testid="kanban-card"
     >
-      {onEdit ? (
-        <button
-          className="w-full text-left text-sm font-medium text-foreground hover:underline"
-          onClick={onEdit}
-          type="button"
-        >
-          {card.title}
-        </button>
-      ) : (
-        <p className="text-sm font-medium text-foreground">{card.title}</p>
-      )}
+      <p className="text-sm font-medium text-foreground">{card.title}</p>
       {card.description ? (
         <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-muted-foreground">
           {card.description}
