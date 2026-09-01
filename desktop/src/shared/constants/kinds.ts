@@ -38,6 +38,9 @@ export const KIND_FILE_METADATA = 1063;
 // event; clients keep the newest version per `d` (last-write-wins). Mirror of
 // buzz-core's KIND_KANBAN_CARD.
 export const KIND_KANBAN_CARD = 40110;
+// NIP-KB: per-channel Kanban column list. Regular stored event, newest per
+// channel wins. Mirror of buzz-core's KIND_KANBAN_BOARD.
+export const KIND_KANBAN_BOARD = 40111;
 export const KIND_APPROVAL_REQUEST = 46010;
 export const KIND_MEMBER_ADDED_NOTIFICATION = 44100;
 export const KIND_MEMBER_REMOVED_NOTIFICATION = 44101;

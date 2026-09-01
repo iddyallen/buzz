@@ -3221,8 +3221,21 @@ type MockKanbanCard = {
 };
 let mockKanbanCards: Map<string, Map<string, MockKanbanCard>> = new Map();
 
+/** NIP-KB per-channel column list (`kind:40111`); absent = defaults. */
+let mockKanbanBoards: Map<
+  string,
+  Array<{ id: string; label: string }>
+> = new Map();
+
+const DEFAULT_KANBAN_COLUMNS = [
+  { id: "todo", label: "To do" },
+  { id: "doing", label: "Doing" },
+  { id: "done", label: "Done" },
+];
+
 function resetMockKanbanCards() {
   mockKanbanCards = new Map();
+  mockKanbanBoards = new Map();
 }
 
 type MockObservedUnreadScope = {
@@ -14265,6 +14278,25 @@ export function maybeInstallE2eTauriMocks() {
         }
         // Return the no-canvas success shape — content null means no canvas set.
         return { content: null, updated_at: null, author: null };
+      }
+      case "get_channel_kanban_board": {
+        const { channelId } = payload as { channelId: string };
+        const stored = mockKanbanBoards.get(channelId);
+        return {
+          columns: stored ?? DEFAULT_KANBAN_COLUMNS,
+          is_default: !stored,
+        };
+      }
+      case "publish_kanban_board": {
+        const req = payload as {
+          channelId: string;
+          columns: Array<{ id: string; label: string }>;
+        };
+        mockKanbanBoards.set(
+          req.channelId,
+          req.columns.map((c) => ({ id: c.id, label: c.label })),
+        );
+        return mockEventId();
       }
       case "get_channel_kanban_cards": {
         const { channelId } = payload as { channelId: string };

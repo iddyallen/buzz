@@ -644,6 +644,8 @@ pub fn run() {
             publish_channel_file,
             get_channel_kanban_cards,
             publish_kanban_card,
+            get_channel_kanban_board,
+            publish_kanban_board,
             get_thread_replies,
             get_channel_reconnect_repair,
             get_channel_window,

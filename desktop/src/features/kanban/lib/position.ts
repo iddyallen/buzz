@@ -1,26 +1,59 @@
 /**
- * NIP-KB fractional ordering helpers (mirror of
- * `buzz_core_pkg::kanban::position_between`).
+ * NIP-KB fractional ordering + column helpers (mirror of
+ * `buzz_core_pkg::kanban`).
  *
  * Cards in a column sort by ascending `position`. Moving a card rewrites only
  * that card's `position` to a value strictly between its new neighbours, so
  * siblings never need to be republished.
  */
 
-/** The fixed board columns, in display order. Mirrors `KanbanColumn::ALL`. */
-export const KANBAN_COLUMNS = ["todo", "doing", "done"] as const;
+/** A board column: an opaque id plus a display label. */
+export type BoardColumn = { id: string; label: string };
 
-export type KanbanColumnId = (typeof KANBAN_COLUMNS)[number];
+/** Columns a channel uses before it publishes a `kind:40111` board event. */
+export const DEFAULT_COLUMNS: BoardColumn[] = [
+  { id: "todo", label: "To do" },
+  { id: "doing", label: "Doing" },
+  { id: "done", label: "Done" },
+];
 
-/** Human labels for the fixed columns. */
-export const KANBAN_COLUMN_LABEL: Record<KanbanColumnId, string> = {
-  todo: "To do",
-  doing: "Doing",
-  done: "Done",
-};
+/** Synthetic bucket for cards whose `col` is not in the current board. */
+export const UNSORTED_COLUMN_ID = "__unsorted__";
 
-export function isKanbanColumnId(value: string): value is KanbanColumnId {
-  return (KANBAN_COLUMNS as readonly string[]).includes(value);
+export const MAX_COLUMNS = 12;
+export const MAX_COLUMN_LABEL_LEN = 40;
+const MAX_COLUMN_ID_LEN = 64;
+
+/** Mirrors `buzz_core_pkg::kanban::is_valid_column_id`. */
+export function isValidColumnId(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= MAX_COLUMN_ID_LEN &&
+    /^[a-z0-9_-]+$/.test(value)
+  );
+}
+
+/**
+ * Derive a column id slug from a human label. Falls back to a random slug when
+ * the label has no usable ASCII (e.g. all emoji).
+ */
+export function slugifyColumnLabel(
+  label: string,
+  taken: string[] = [],
+): string {
+  const base =
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, MAX_COLUMN_ID_LEN) ||
+    `col-${Math.random().toString(36).slice(2, 8)}`;
+  if (!taken.includes(base)) return base;
+  for (let n = 2; n < 1000; n += 1) {
+    const candidate = `${base}-${n}`.slice(0, MAX_COLUMN_ID_LEN);
+    if (!taken.includes(candidate)) return candidate;
+  }
+  return `${base}-${Date.now()}`;
 }
 
 const POSITION_STEP = 1;

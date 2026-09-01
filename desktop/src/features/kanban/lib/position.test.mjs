@@ -3,9 +3,10 @@ import { test } from "node:test";
 
 import {
   compareCards,
-  isKanbanColumnId,
+  isValidColumnId,
   positionBetween,
   positionForDrop,
+  slugifyColumnLabel,
 } from "./position.ts";
 
 test("positionBetween places values strictly between neighbours", () => {
@@ -46,7 +47,15 @@ test("positionForDrop picks an end or a midpoint by index", () => {
   assert.equal(positionForDrop([], 0), 0); // empty column
 });
 
-test("isKanbanColumnId only accepts the fixed tokens", () => {
-  for (const id of ["todo", "doing", "done"]) assert.ok(isKanbanColumnId(id));
-  for (const id of ["Done", "backlog", ""]) assert.ok(!isKanbanColumnId(id));
+test("isValidColumnId accepts lowercase slugs only", () => {
+  for (const id of ["todo", "in-review", "blocked_2"])
+    assert.ok(isValidColumnId(id));
+  for (const id of ["To Do", "café", "", "x".repeat(65)])
+    assert.ok(!isValidColumnId(id));
+});
+
+test("slugifyColumnLabel derives a unique slug", () => {
+  assert.equal(slugifyColumnLabel("In Review"), "in-review");
+  assert.equal(slugifyColumnLabel("Done!", ["done"]), "done-2");
+  assert.ok(isValidColumnId(slugifyColumnLabel("🚀")));
 });

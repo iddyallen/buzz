@@ -1,10 +1,13 @@
-//! NIP-KB channel Kanban board — list and publish `kind:40110` card events.
+//! NIP-KB channel Kanban board — list/publish `kind:40110` cards and the
+//! `kind:40111` board (column) configuration.
 //!
 //! Every create / edit / move / delete is one fresh `kind:40110` event (tags
 //! are the full desired state, never a delta). The board is reconstructed by
 //! keeping only the newest version per `d` (card id) and dropping tombstones.
-//! Tag layout and validation come from `buzz_core_pkg::kanban` so this builder
-//! and the relay-side validator cannot drift.
+//! The column list is the newest `kind:40111` for the channel, or the default
+//! three columns when none has been published. Tag layout and validation come
+//! from `buzz_core_pkg::kanban` so this builder and the relay-side validator
+//! cannot drift.
 
 use std::collections::HashMap;
 
@@ -12,26 +15,21 @@ use nostr::{EventBuilder, Kind, Tag};
 use tauri::State;
 use uuid::Uuid;
 
-use buzz_core_pkg::kanban::{KanbanCard, KanbanColumn};
+use buzz_core_pkg::kanban::{is_valid_column_id, KanbanBoard, KanbanBoardColumn, KanbanCard};
 
 use crate::{
     app_state::AppState,
     events::check_content,
-    models::{KanbanCardInfo, KanbanCardsResponse},
+    models::{KanbanBoardColumnInfo, KanbanBoardResponse, KanbanCardInfo, KanbanCardsResponse},
     relay::{query_relay, submit_event},
 };
-
-/// Parse a `col` string coming from the frontend into a [`KanbanColumn`].
-fn parse_column(col: &str) -> Result<KanbanColumn, String> {
-    KanbanColumn::parse(col).ok_or_else(|| format!("invalid column: {col}"))
-}
 
 /// Build a `kind:40110` NIP-KB card event from the desired card state.
 #[allow(clippy::too_many_arguments)]
 fn build_card(
     channel_id: Uuid,
     card_id: Uuid,
-    column: KanbanColumn,
+    column: &str,
     position: f64,
     title: &str,
     description: &str,
@@ -41,10 +39,13 @@ fn build_card(
 ) -> Result<EventBuilder, String> {
     check_content(description)?;
     check_content(title)?;
+    if !is_valid_column_id(column) {
+        return Err(format!("invalid column id: {column}"));
+    }
     let card = KanbanCard {
         channel_id,
         card_id,
-        column,
+        column: column.to_string(),
         position,
         title: title.to_string(),
         description: description.to_string(),
@@ -66,7 +67,7 @@ fn info_from_card(event: &nostr::Event, card: &KanbanCard) -> KanbanCardInfo {
         event_id: event.id.to_hex(),
         pubkey: event.pubkey.to_hex(),
         card_id: card.card_id.to_string(),
-        column: card.column.as_str().to_string(),
+        column: card.column.clone(),
         position: card.position,
         title: card.title.clone(),
         description: card.description.clone(),
@@ -156,12 +157,11 @@ pub async fn publish_kanban_card(
         Uuid::parse_str(&channel_id).map_err(|_| format!("invalid channel UUID: {channel_id}"))?;
     let card_uuid =
         Uuid::parse_str(&card_id).map_err(|_| format!("invalid card UUID: {card_id}"))?;
-    let column = parse_column(&column)?;
 
     let builder = build_card(
         channel_uuid,
         card_uuid,
-        column,
+        &column,
         position,
         &title,
         description.as_deref().unwrap_or(""),
@@ -169,6 +169,85 @@ pub async fn publish_kanban_card(
         source_event_id.filter(|s| !s.is_empty()),
         deleted.unwrap_or(false),
     )?;
+
+    let response = submit_event(builder, &state).await?;
+    Ok(response.event_id)
+}
+
+fn board_to_infos(board: &KanbanBoard) -> Vec<KanbanBoardColumnInfo> {
+    board
+        .columns
+        .iter()
+        .map(|c| KanbanBoardColumnInfo {
+            id: c.id.clone(),
+            label: c.label.clone(),
+        })
+        .collect()
+}
+
+/// Get a channel's Kanban column list — the newest `kind:40111`, or the
+/// default `todo` / `doing` / `done` when the channel has none.
+#[tauri::command]
+pub async fn get_channel_kanban_board(
+    channel_id: String,
+    state: State<'_, AppState>,
+) -> Result<KanbanBoardResponse, String> {
+    let channel_uuid =
+        Uuid::parse_str(&channel_id).map_err(|_| format!("invalid channel UUID: {channel_id}"))?;
+
+    let filter = serde_json::json!({
+        "kinds": [40111],
+        "#h": [channel_id.clone()],
+        "limit": 50,
+    });
+    let events = query_relay(&state, &[filter]).await.unwrap_or_default();
+
+    let winner = events
+        .iter()
+        .filter_map(|e| KanbanBoard::from_event(e).ok().map(|b| (e, b)))
+        .reduce(|acc, next| if is_newer(next.0, acc.0) { next } else { acc });
+
+    let (board, is_default) = match winner {
+        Some((_, board)) => (board, false),
+        None => (KanbanBoard::default_for(channel_uuid), true),
+    };
+
+    Ok(KanbanBoardResponse {
+        columns: board_to_infos(&board),
+        is_default,
+    })
+}
+
+/// Publish a `kind:40111` board configuration (the full column list, in
+/// display order).
+#[tauri::command]
+pub async fn publish_kanban_board(
+    channel_id: String,
+    columns: Vec<KanbanBoardColumnInfo>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let channel_uuid =
+        Uuid::parse_str(&channel_id).map_err(|_| format!("invalid channel UUID: {channel_id}"))?;
+
+    let board = KanbanBoard {
+        channel_id: channel_uuid,
+        columns: columns
+            .into_iter()
+            .map(|c| KanbanBoardColumn {
+                id: c.id,
+                label: c.label.trim().to_string(),
+            })
+            .collect(),
+    };
+    KanbanBoard::validate_columns(&board.columns).map_err(|e| e.to_string())?;
+
+    let tags = board
+        .to_tag_rows()
+        .into_iter()
+        .map(Tag::parse)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("invalid board tag: {e}"))?;
+    let builder = EventBuilder::new(Kind::Custom(40111), board.to_content()).tags(tags);
 
     let response = submit_event(builder, &state).await?;
     Ok(response.event_id)
@@ -224,7 +303,7 @@ mod tests {
         let builder = build_card(
             Uuid::parse_str(CHAN).unwrap(),
             Uuid::parse_str(CARD).unwrap(),
-            KanbanColumn::Doing,
+            "in-review",
             2.5,
             "Ship it",
             "the description",
@@ -236,10 +315,26 @@ mod tests {
         let keys = Keys::generate();
         let event = builder.sign_with_keys(&keys).expect("sign");
         let card = KanbanCard::from_event(&event).expect("parse");
-        assert_eq!(card.column, KanbanColumn::Doing);
+        assert_eq!(card.column, "in-review");
         assert_eq!(card.position, 2.5);
         assert_eq!(card.title, "Ship it");
-        assert_eq!(card.description, "the description");
+    }
+
+    #[test]
+    fn rejects_malformed_column_id() {
+        let err = build_card(
+            Uuid::parse_str(CHAN).unwrap(),
+            Uuid::parse_str(CARD).unwrap(),
+            "Not A Slug",
+            0.0,
+            "t",
+            "",
+            None,
+            None,
+            false,
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid column id"));
     }
 
     #[test]
@@ -247,7 +342,7 @@ mod tests {
         let builder = build_card(
             Uuid::parse_str(CHAN).unwrap(),
             Uuid::parse_str(CARD).unwrap(),
-            KanbanColumn::Todo,
+            "todo",
             0.0,
             "",
             "",
@@ -260,5 +355,33 @@ mod tests {
         let event = builder.sign_with_keys(&keys).expect("sign");
         let card = KanbanCard::from_event(&event).expect("parse");
         assert!(card.deleted);
+    }
+
+    #[test]
+    fn board_builder_round_trips() {
+        let board = KanbanBoard {
+            channel_id: Uuid::parse_str(CHAN).unwrap(),
+            columns: vec![
+                KanbanBoardColumn {
+                    id: "todo".into(),
+                    label: "To do".into(),
+                },
+                KanbanBoardColumn {
+                    id: "qa".into(),
+                    label: "QA".into(),
+                },
+            ],
+        };
+        let keys = Keys::generate();
+        let tags: Vec<Tag> = board
+            .to_tag_rows()
+            .into_iter()
+            .map(|r| Tag::parse(r).unwrap())
+            .collect();
+        let ev = EventBuilder::new(Kind::Custom(40111), board.to_content())
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap();
+        assert_eq!(KanbanBoard::from_event(&ev).unwrap(), board);
     }
 }

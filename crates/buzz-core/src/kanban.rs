@@ -1,4 +1,5 @@
-//! NIP-KB: Kanban Board — channel-scoped `kind:40110` task cards.
+//! NIP-KB: Kanban Board — channel-scoped `kind:40110` cards and the optional
+//! `kind:40111` board configuration.
 //!
 //! A Kanban card lives inside a Buzz channel as a `kind:40110` event scoped to
 //! that channel by an `h` tag and identified by a stable `d` tag (the card
@@ -8,18 +9,26 @@
 //! retracted by a `["deleted", "true"]` tag on a newer version, or by an
 //! ordinary NIP-09 `kind:5` deletion.
 //!
-//! Columns are the fixed set `todo` / `doing` / `done`. Ordering within a
-//! column is a fractional `pos` tag ([`position_between`]) so dragging a card
-//! rewrites only the moved card, never the whole column.
+//! The set of columns is per-channel and editable: a `kind:40111` board event
+//! (also `h`-scoped, also last-write-wins per channel) lists the columns in
+//! display order. When no board event exists the channel uses
+//! [`DEFAULT_COLUMNS`] (`todo` / `doing` / `done`). A card's `col` tag is an
+//! opaque column id; a client places a card whose `col` is not in the current
+//! board into a fallback "unsorted" bucket so nothing is lost when a column is
+//! removed.
 //!
-//! This module parses such an event into a [`KanbanCard`], validates the
-//! NIP-KB tag contract, and builds the tag list for publishing one. See
-//! `docs/nips/NIP-KB.md` for the full specification.
+//! Ordering within a column is a fractional `pos` tag ([`position_between`]) so
+//! dragging a card rewrites only the moved card, never the whole column.
+//!
+//! This module parses such events into [`KanbanCard`] / [`KanbanBoard`],
+//! validates the NIP-KB tag contract, and builds what is needed to publish
+//! them. See `docs/nips/NIP-KB.md` for the full specification.
 
 use nostr::Event;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::kind::{event_kind_u32, KIND_KANBAN_CARD};
+use crate::kind::{event_kind_u32, KIND_KANBAN_BOARD, KIND_KANBAN_CARD};
 
 /// Marker used on the `e` tag that links a card back to the message it was
 /// created from.
@@ -35,41 +44,30 @@ pub const MAX_DESCRIPTION_LEN: usize = 20_000;
 /// [`position_between`]).
 pub const POSITION_STEP: f64 = 1.0;
 
-/// The fixed set of Kanban columns. NIP-KB v1 does not support custom columns.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum KanbanColumn {
-    /// Not started.
-    Todo,
-    /// In progress.
-    Doing,
-    /// Finished.
-    Done,
-}
+/// Maximum length of a column id, in characters.
+pub const MAX_COLUMN_ID_LEN: usize = 64;
 
-impl KanbanColumn {
-    /// Every column, in board order.
-    pub const ALL: [KanbanColumn; 3] =
-        [KanbanColumn::Todo, KanbanColumn::Doing, KanbanColumn::Done];
+/// Maximum length of a column label, in characters, after trimming.
+pub const MAX_COLUMN_LABEL_LEN: usize = 40;
 
-    /// The wire token for the `col` tag.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            KanbanColumn::Todo => "todo",
-            KanbanColumn::Doing => "doing",
-            KanbanColumn::Done => "done",
-        }
-    }
+/// Maximum number of columns a board may declare.
+pub const MAX_COLUMNS: usize = 12;
 
-    /// Parse a `col` tag token. Returns `None` for any value outside the fixed
-    /// set.
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "todo" => Some(KanbanColumn::Todo),
-            "doing" => Some(KanbanColumn::Doing),
-            "done" => Some(KanbanColumn::Done),
-            _ => None,
-        }
-    }
+/// The columns a channel uses when it has published no `kind:40111` board
+/// event: `(id, label)` pairs in display order.
+pub const DEFAULT_COLUMNS: [(&str, &str); 3] =
+    [("todo", "To do"), ("doing", "Doing"), ("done", "Done")];
+
+/// Returns `true` if `s` is a well-formed column id: 1..=[`MAX_COLUMN_ID_LEN`]
+/// characters drawn from `[a-z0-9_-]`.
+///
+/// Column ids are lowercased, delimiter-free slugs so they are safe to carry
+/// in a single tag value and compare byte-for-byte.
+pub fn is_valid_column_id(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= MAX_COLUMN_ID_LEN
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
 }
 
 /// Why parsing or validating a `kind:40110` Kanban card failed.
@@ -92,7 +90,8 @@ pub enum KanbanCardError {
     /// The `d` tag was not a valid UUID.
     #[error("invalid card id in `d` tag: {0}")]
     InvalidCardId(String),
-    /// The `col` tag was not one of `todo` / `doing` / `done`.
+    /// The `col` tag was not a well-formed column id (see
+    /// [`is_valid_column_id`]).
     #[error("invalid `col` tag: {0}")]
     InvalidColumn(String),
     /// The `pos` tag was not a finite base-10 float.
@@ -122,15 +121,16 @@ pub struct KanbanCard {
     pub channel_id: Uuid,
     /// Stable card identity across versions (`d` tag).
     pub card_id: Uuid,
-    /// Which column the card currently sits in (`col` tag).
-    pub column: KanbanColumn,
+    /// Column id the card currently sits in (`col` tag). Opaque; membership in
+    /// the channel's [`KanbanBoard`] is a client concern.
+    pub column: String,
     /// Fractional sort key within the column (`pos` tag).
     pub position: f64,
     /// Card title (`title` tag); may be empty only on a tombstone.
     pub title: String,
     /// Free-form description (`content`); may be empty.
     pub description: String,
-    /// Assignee public key, lowercase hex (`p` tag), if any. NIP-KB v1 does not
+    /// Assignee public key, lowercase hex (`p` tag), if any. NIP-KB does not
     /// distinguish a human assignee from an agent — this is just a pubkey.
     pub assignee: Option<String>,
     /// Id of the `kind:9` message this card was created from (`e` tag with the
@@ -191,8 +191,9 @@ impl KanbanCard {
             Uuid::parse_str(d).map_err(|_| KanbanCardError::InvalidCardId(d.to_string()))?;
 
         let col = first_tag_value(event, "col").ok_or(KanbanCardError::MissingTag("col"))?;
-        let column = KanbanColumn::parse(col)
-            .ok_or_else(|| KanbanCardError::InvalidColumn(col.to_string()))?;
+        if !is_valid_column_id(col) {
+            return Err(KanbanCardError::InvalidColumn(col.to_string()));
+        }
 
         let pos_raw = first_tag_value(event, "pos").ok_or(KanbanCardError::MissingTag("pos"))?;
         let position: f64 = pos_raw
@@ -240,7 +241,7 @@ impl KanbanCard {
         Ok(KanbanCard {
             channel_id,
             card_id,
-            column,
+            column: col.to_string(),
             position,
             title,
             description: event.content.clone(),
@@ -269,7 +270,7 @@ impl KanbanCard {
         let mut rows = vec![
             vec!["h".to_string(), self.channel_id.to_string()],
             vec!["d".to_string(), self.card_id.to_string()],
-            vec!["col".to_string(), self.column.as_str().to_string()],
+            vec!["col".to_string(), self.column.clone()],
             vec!["pos".to_string(), format_position(self.position)],
             vec!["title".to_string(), self.title.clone()],
         ];
@@ -288,6 +289,147 @@ impl KanbanCard {
             rows.push(vec!["deleted".to_string(), "true".to_string()]);
         }
         rows
+    }
+}
+
+/// One column in a channel's Kanban board.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KanbanBoardColumn {
+    /// Opaque, stable column id (see [`is_valid_column_id`]).
+    pub id: String,
+    /// Human-readable column name.
+    pub label: String,
+}
+
+/// Why parsing or validating a `kind:40111` board configuration failed.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum KanbanBoardError {
+    /// Event kind was not [`KIND_KANBAN_BOARD`].
+    #[error("wrong kind: expected {expected}, got {got}")]
+    WrongKind {
+        /// Expected kind (40111).
+        expected: u32,
+        /// Kind actually present on the event.
+        got: u32,
+    },
+    /// The `h` tag was absent.
+    #[error("missing required tag: h")]
+    MissingChannel,
+    /// The `h` tag was not a valid UUID.
+    #[error("invalid channel id in `h` tag: {0}")]
+    InvalidChannelId(String),
+    /// `content` was not the expected `{ "columns": [...] }` JSON shape.
+    #[error("invalid board content: {0}")]
+    InvalidContent(String),
+    /// The column count was outside `1..={MAX_COLUMNS}`.
+    #[error("board must have 1..={MAX_COLUMNS} columns")]
+    ColumnCount,
+    /// A column id was malformed (see [`is_valid_column_id`]).
+    #[error("invalid column id: {0}")]
+    InvalidColumnId(String),
+    /// Two columns shared an id.
+    #[error("duplicate column id: {0}")]
+    DuplicateColumnId(String),
+    /// A column label was empty or too long.
+    #[error("invalid column label for `{0}`: 1..={MAX_COLUMN_LABEL_LEN} chars, no NUL")]
+    InvalidColumnLabel(String),
+}
+
+/// A parsed, validated NIP-KB board configuration (`kind:40111`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KanbanBoard {
+    /// Channel the board belongs to (`h` tag).
+    pub channel_id: Uuid,
+    /// Columns in display order (leftmost first).
+    pub columns: Vec<KanbanBoardColumn>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BoardContent {
+    columns: Vec<KanbanBoardColumn>,
+}
+
+impl KanbanBoard {
+    /// The board a channel uses before it has published a `kind:40111` event.
+    pub fn default_for(channel_id: Uuid) -> Self {
+        KanbanBoard {
+            channel_id,
+            columns: DEFAULT_COLUMNS
+                .iter()
+                .map(|(id, label)| KanbanBoardColumn {
+                    id: (*id).to_string(),
+                    label: (*label).to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    /// Validate a column list (shared by [`Self::from_event`] and publishers).
+    pub fn validate_columns(columns: &[KanbanBoardColumn]) -> Result<(), KanbanBoardError> {
+        if columns.is_empty() || columns.len() > MAX_COLUMNS {
+            return Err(KanbanBoardError::ColumnCount);
+        }
+        let mut seen: Vec<&str> = Vec::with_capacity(columns.len());
+        for column in columns {
+            if !is_valid_column_id(&column.id) {
+                return Err(KanbanBoardError::InvalidColumnId(column.id.clone()));
+            }
+            if seen.contains(&column.id.as_str()) {
+                return Err(KanbanBoardError::DuplicateColumnId(column.id.clone()));
+            }
+            seen.push(&column.id);
+            let label = column.label.trim();
+            if label.is_empty()
+                || label.chars().count() > MAX_COLUMN_LABEL_LEN
+                || label.contains('\0')
+            {
+                return Err(KanbanBoardError::InvalidColumnLabel(column.id.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Parse and validate a `kind:40111` event as a NIP-KB board configuration.
+    pub fn from_event(event: &Event) -> Result<Self, KanbanBoardError> {
+        let got = event_kind_u32(event);
+        if got != KIND_KANBAN_BOARD {
+            return Err(KanbanBoardError::WrongKind {
+                expected: KIND_KANBAN_BOARD,
+                got,
+            });
+        }
+
+        let h = first_tag_value(event, "h").ok_or(KanbanBoardError::MissingChannel)?;
+        let channel_id =
+            Uuid::parse_str(h).map_err(|_| KanbanBoardError::InvalidChannelId(h.to_string()))?;
+
+        let parsed: BoardContent = serde_json::from_str(&event.content)
+            .map_err(|e| KanbanBoardError::InvalidContent(e.to_string()))?;
+
+        let columns: Vec<KanbanBoardColumn> = parsed
+            .columns
+            .into_iter()
+            .map(|c| KanbanBoardColumn {
+                id: c.id,
+                label: c.label.trim().to_string(),
+            })
+            .collect();
+        Self::validate_columns(&columns)?;
+
+        Ok(KanbanBoard {
+            channel_id,
+            columns,
+        })
+    }
+
+    /// The `content` JSON string for a `kind:40111` event.
+    pub fn to_content(&self) -> String {
+        serde_json::json!({ "columns": self.columns }).to_string()
+    }
+
+    /// The tag rows for a `kind:40111` event (just the `h` scope tag).
+    pub fn to_tag_rows(&self) -> Vec<Vec<String>> {
+        vec![vec!["h".to_string(), self.channel_id.to_string()]]
     }
 }
 
@@ -357,7 +499,7 @@ mod tests {
         let card = parse_valid(&[]).expect("valid");
         assert_eq!(card.channel_id, Uuid::parse_str(CHAN).unwrap());
         assert_eq!(card.card_id, Uuid::parse_str(CARD).unwrap());
-        assert_eq!(card.column, KanbanColumn::Doing);
+        assert_eq!(card.column, "doing");
         assert_eq!(card.position, 1.5);
         assert_eq!(card.title, "Ship the board");
         assert_eq!(card.description, "do the thing");
@@ -402,7 +544,7 @@ mod tests {
             KanbanCardError::InvalidCardId("nope".to_string())
         );
         assert!(matches!(
-            parse_valid_with_override("col", "backlog").unwrap_err(),
+            parse_valid_with_override("col", "Backlog Column").unwrap_err(),
             KanbanCardError::InvalidColumn(_)
         ));
         assert_eq!(
@@ -416,6 +558,22 @@ mod tests {
         assert_eq!(
             parse_valid_with_override("pos", "NaN").unwrap_err(),
             KanbanCardError::InvalidPosition
+        );
+    }
+
+    #[test]
+    fn accepts_arbitrary_slug_columns() {
+        assert_eq!(
+            parse_valid_with_override("col", "in-review")
+                .unwrap()
+                .column,
+            "in-review"
+        );
+        assert_eq!(
+            parse_valid_with_override("col", "blocked_2")
+                .unwrap()
+                .column,
+            "blocked_2"
         );
     }
 
@@ -503,7 +661,6 @@ mod tests {
             parse_valid(&[&["e", "deadbeef", "", "source"]]).unwrap_err(),
             KanbanCardError::InvalidSource
         );
-        // An `e` tag without the `source` marker is ignored, not rejected.
         assert!(parse_valid(&[&["e", "deadbeef"]]).is_ok());
     }
 
@@ -536,11 +693,13 @@ mod tests {
     }
 
     #[test]
-    fn column_tokens_round_trip() {
-        for col in KanbanColumn::ALL {
-            assert_eq!(KanbanColumn::parse(col.as_str()), Some(col));
-        }
-        assert_eq!(KanbanColumn::parse("Done"), None);
+    fn column_id_rules() {
+        assert!(is_valid_column_id("todo"));
+        assert!(is_valid_column_id("in-review_2"));
+        assert!(!is_valid_column_id(""));
+        assert!(!is_valid_column_id("To Do"));
+        assert!(!is_valid_column_id("café"));
+        assert!(!is_valid_column_id(&"x".repeat(MAX_COLUMN_ID_LEN + 1)));
     }
 
     #[test]
@@ -561,5 +720,102 @@ mod tests {
         for v in [0.0, 1.0, -3.5, 1.5, 2.0000001, 123456.75] {
             assert_eq!(format_position(v).parse::<f64>().unwrap(), v);
         }
+    }
+
+    // ── KanbanBoard ─────────────────────────────────────────────────────
+
+    fn board_event(content: &str, h: Option<&str>) -> Event {
+        let keys = Keys::generate();
+        let mut b = EventBuilder::new(Kind::Custom(KIND_KANBAN_BOARD as u16), content);
+        if let Some(h) = h {
+            b = b.tags([Tag::parse(["h", h]).unwrap()]);
+        }
+        b.sign_with_keys(&keys).expect("sign")
+    }
+
+    #[test]
+    fn default_board_is_the_three_fixed_columns() {
+        let board = KanbanBoard::default_for(Uuid::parse_str(CHAN).unwrap());
+        assert_eq!(
+            board
+                .columns
+                .iter()
+                .map(|c| c.id.as_str())
+                .collect::<Vec<_>>(),
+            ["todo", "doing", "done"]
+        );
+    }
+
+    #[test]
+    fn parses_a_valid_board() {
+        let content = r#"{"columns":[{"id":"todo","label":"To do"},{"id":"in-review","label":"In review"},{"id":"done","label":"Done"}]}"#;
+        let board = KanbanBoard::from_event(&board_event(content, Some(CHAN))).expect("valid");
+        assert_eq!(board.channel_id, Uuid::parse_str(CHAN).unwrap());
+        assert_eq!(board.columns.len(), 3);
+        assert_eq!(board.columns[1].id, "in-review");
+        assert_eq!(board.columns[1].label, "In review");
+    }
+
+    #[test]
+    fn board_rejects_bad_shapes() {
+        assert!(matches!(
+            KanbanBoard::from_event(&board_event("{}", Some(CHAN))).unwrap_err(),
+            KanbanBoardError::InvalidContent(_)
+        ));
+        assert!(matches!(
+            KanbanBoard::from_event(&board_event(r#"{"columns":[]}"#, Some(CHAN))).unwrap_err(),
+            KanbanBoardError::ColumnCount
+        ));
+        assert!(matches!(
+            KanbanBoard::from_event(&board_event(
+                r#"{"columns":[{"id":"a","label":"A"},{"id":"a","label":"B"}]}"#,
+                Some(CHAN),
+            ))
+            .unwrap_err(),
+            KanbanBoardError::DuplicateColumnId(_)
+        ));
+        assert!(matches!(
+            KanbanBoard::from_event(&board_event(
+                r#"{"columns":[{"id":"Bad Id","label":"x"}]}"#,
+                Some(CHAN),
+            ))
+            .unwrap_err(),
+            KanbanBoardError::InvalidColumnId(_)
+        ));
+        assert!(matches!(
+            KanbanBoard::from_event(&board_event(
+                r#"{"columns":[{"id":"a","label":"   "}]}"#,
+                Some(CHAN),
+            ))
+            .unwrap_err(),
+            KanbanBoardError::InvalidColumnLabel(_)
+        ));
+        assert!(matches!(
+            KanbanBoard::from_event(&board_event(
+                r#"{"columns":[{"id":"a","label":"A"}]}"#,
+                None
+            ))
+            .unwrap_err(),
+            KanbanBoardError::MissingChannel
+        ));
+    }
+
+    #[test]
+    fn board_content_round_trips() {
+        let board = KanbanBoard {
+            channel_id: Uuid::parse_str(CHAN).unwrap(),
+            columns: vec![
+                KanbanBoardColumn {
+                    id: "todo".into(),
+                    label: "To do".into(),
+                },
+                KanbanBoardColumn {
+                    id: "shipping".into(),
+                    label: "Shipping 🚀".into(),
+                },
+            ],
+        };
+        let ev = board_event(&board.to_content(), Some(CHAN));
+        assert_eq!(KanbanBoard::from_event(&ev).unwrap(), board);
     }
 }

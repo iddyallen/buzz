@@ -10,7 +10,9 @@ use forum::{
     apply_link_preview_suppression, fetch_agent_owner_pubkeys, link_preview_suppression_targets,
 };
 pub use forum::{get_forum_posts, get_forum_thread};
-pub use kanban::{get_channel_kanban_cards, publish_kanban_card};
+pub use kanban::{
+    get_channel_kanban_board, get_channel_kanban_cards, publish_kanban_board, publish_kanban_card,
+};
 
 use crate::{
     app_state::AppState,

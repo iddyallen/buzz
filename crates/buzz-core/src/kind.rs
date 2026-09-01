@@ -505,6 +505,16 @@ pub const KIND_CANVAS: u32 = 40100;
 /// rewrites only the moved card. See `docs/nips/NIP-KB.md` and
 /// [`crate::kanban`].
 pub const KIND_KANBAN_CARD: u32 = 40110;
+/// NIP-KB: Kanban board configuration — the ordered column list for a
+/// channel's board (regular stored event).
+///
+/// A `kind:40111` event is `h`-scoped to its channel and, like the card kind,
+/// is **not** replaceable: clients keep only the highest `created_at` per
+/// channel (last-write-wins across authors). `content` is
+/// `{"columns":[{"id","label"},…]}` in display order. A channel with no
+/// `kind:40111` event uses the default `todo` / `doing` / `done` columns. See
+/// `docs/nips/NIP-KB.md` and [`crate::kanban::KanbanBoard`].
+pub const KIND_KANBAN_BOARD: u32 = 40111;
 /// System message for channel state changes (join, leave, rename, etc.).
 pub const KIND_SYSTEM_MESSAGE: u32 = 40099;
 
@@ -721,6 +731,7 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_STREAM_MESSAGE_DIFF,
     KIND_CANVAS,
     KIND_KANBAN_CARD,
+    KIND_KANBAN_BOARD,
     KIND_SYSTEM_MESSAGE,
     KIND_CHANNEL_SUMMARY,
     KIND_PRESENCE_SNAPSHOT,
@@ -905,6 +916,10 @@ const _: () = assert!(!is_ephemeral(KIND_KANBAN_CARD));
 const _: () = assert!(!is_replaceable(KIND_KANBAN_CARD));
 const _: () = assert!(!is_parameterized_replaceable(KIND_KANBAN_CARD));
 const _: () = assert!(KIND_KANBAN_CARD <= u16::MAX as u32);
+const _: () = assert!(!is_ephemeral(KIND_KANBAN_BOARD));
+const _: () = assert!(!is_replaceable(KIND_KANBAN_BOARD));
+const _: () = assert!(!is_parameterized_replaceable(KIND_KANBAN_BOARD));
+const _: () = assert!(KIND_KANBAN_BOARD <= u16::MAX as u32);
 // Moderation kinds fit u16 and are neither replaceable nor ephemeral:
 // 1984 is a regular event (persisted to the queue, never fanned out);
 // 9040–9044 are direct commands (executed, never stored).

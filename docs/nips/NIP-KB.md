@@ -15,28 +15,61 @@ RFC 8174) when, and only when, they appear in all capitals.
 ## Abstract
 
 NIP-KB gives a Buzz channel a Kanban board: an ordered set of task **cards**
-spread across a fixed set of columns. A card is a `kind:40110` event,
-channel-scoped by an `h` tag and identified by a stable `d` tag. The board is a
-panel of the channel it belongs to — there is exactly one board per channel, and
-its membership is the channel's membership.
+spread across a list of **columns**. A card is a `kind:40110` event and the
+column list is an optional `kind:40111` event; both are channel-scoped by an
+`h` tag. The board is a panel of the channel it belongs to — there is exactly
+one board per channel, and its membership is the channel's membership.
 
-The board has no event of its own. Its columns are the fixed set `todo` /
-`doing` / `done`; v1 does not support renaming, adding, or removing columns.
+## Event kinds
 
-## Event kind
+| Kind  | Name         | Scope   | Storage |
+|-------|--------------|---------|---------|
+| 40110 | Kanban card  | channel | durable |
+| 40111 | Kanban board | channel | durable |
 
-| Kind  | Name        | Scope   | Storage |
-|-------|-------------|---------|---------|
-| 40110 | Kanban card | channel | durable |
-
-`kind:40110` is a **regular** event. It is *not* replaceable and *not*
+Both kinds are **regular** events — *not* replaceable and *not*
 parameterized-replaceable: the relay stores every version. Clients reconstruct
-the board by keeping, for each `d` value, only the event with the highest
-`created_at` (ties broken by the lexically-greater `id`). This last-write-wins
-merge is a client convention, not relay behaviour, so a move published by a user
-other than the card's creator still wins if it is newer.
+current state by a last-write-wins merge that is a client convention, not relay
+behaviour, so an edit published by a user other than the original author still
+wins if it is newer:
 
-## Event structure
+- **cards** — keep, for each `d` value, only the event with the highest
+  `created_at` (ties broken by the lexically-greater `id`);
+- **board** — keep only the `kind:40111` event with the highest `created_at`
+  (same tiebreak) for the channel.
+
+## Columns (`kind:40111`)
+
+The column list is a single `kind:40111` event per channel:
+
+```json
+{
+  "kind": 40111,
+  "content": "{\"columns\":[{\"id\":\"todo\",\"label\":\"To do\"},{\"id\":\"in-review\",\"label\":\"In review\"},{\"id\":\"done\",\"label\":\"Done\"}]}",
+  "tags": [["h", "6f9d2c1e-1b7a-4a2e-9f3c-2b8e5d4a1c00"]]
+}
+```
+
+- The only tag is `h` (the channel UUID).
+- `content` is JSON `{ "columns": [ { "id", "label" }, … ] }` in **display
+  order**, leftmost first.
+- `id` is an opaque slug: 1–64 characters from `[a-z0-9_-]`, unique within the
+  list. It is the value cards carry in their `col` tag and MUST stay stable
+  across renames.
+- `label` is the human name: 1–40 characters after trimming, no NUL.
+- A board MUST declare 1–12 columns.
+
+A channel with **no** `kind:40111` event uses the default columns
+`todo` / `doing` / `done` (labels "To do" / "Doing" / "Done"). Editing columns
+— add, rename, reorder, remove — is done by publishing a new `kind:40111` with
+the full desired list.
+
+Removing a column does **not** rewrite the cards that were in it. A client MUST
+render any card whose `col` is not in the current column list in a synthetic
+"unsorted" bucket and let the user move it into a real column; it MUST NOT drop
+such a card.
+
+## Card structure
 
 ```json
 {
@@ -60,7 +93,7 @@ other than the card's creator still wins if it is newer.
 |-----------|----------|---------|
 | `h`       | yes      | Channel UUID the card belongs to. Its membership defines who may read and write the card. |
 | `d`       | yes      | Card UUID. Stable across every version of the card; the last-write-wins merge key. |
-| `col`     | yes      | Column token. MUST be exactly one of `todo`, `doing`, `done`. |
+| `col`     | yes      | Column id: 1–64 characters from `[a-z0-9_-]`. Need not currently be present in the channel's `kind:40111` list (see *Columns*). |
 | `pos`     | yes      | Fractional sort key within the column, a finite base-10 number (may be negative). Lower sorts first. |
 | `title`   | yes      | Card title, 0–200 characters after trimming, no NUL. MUST be non-empty unless the card is a tombstone (see *Deletion*). |
 | `p`       | no       | Assignee public key, 64 lowercase hex. v1 does not distinguish a human assignee from an agent. |
@@ -106,19 +139,25 @@ a card once any version in its `d` history is the target of an authorised
 
 ## Relay behaviour
 
-- A `kind:40110` event without a valid `h` tag naming a channel the author may
-  write to MUST be rejected.
-- Read access to a `kind:40110` event follows the same channel-membership rule
-  as `kind:9` messages in that channel.
-- Relays SHOULD index `kind:40110` by channel so a board can be served with one
-  filter (`{"kinds":[40110],"#h":["<channel>"]}`). No board-specific index is
-  required.
+- A `kind:40110` or `kind:40111` event without a valid `h` tag naming a channel
+  the author may write to MUST be rejected.
+- Read access follows the same channel-membership rule as `kind:9` messages in
+  that channel.
+- Relays SHOULD index both kinds by channel so the board can be served with two
+  filters (`{"kinds":[40110],"#h":["<channel>"]}` and
+  `{"kinds":[40111],"#h":["<channel>"]}`). No board-specific index is required.
 
 ## Validation
 
-Implementations MUST reject an event as malformed when any REQUIRED tag is
-missing, `h` or `d` is not a UUID, `col` is not one of the three tokens, `pos`
-is not a finite number, `title` is longer than 200 characters (or empty on a
+A `kind:40110` card is malformed when any REQUIRED tag is missing, `h` or `d`
+is not a UUID, `col` is not 1–64 characters of `[a-z0-9_-]`, `pos` is not a
+finite number, `title` is longer than 200 characters (or empty on a
 non-tombstone), `content` is longer than 20000 characters, `p` or the `source`
 `e` value is not 64 lowercase hex, or a `deleted` tag carries any value other
 than `"true"`.
+
+A `kind:40111` board is malformed when the `h` tag is missing or not a UUID,
+`content` is not `{ "columns": [ { "id", "label" }, … ] }`, the column count is
+outside 1–12, any `id` is not 1–64 characters of `[a-z0-9_-]`, two columns
+share an `id`, or any `label` is empty (after trimming), longer than 40
+characters, or contains NUL.

@@ -86,3 +86,36 @@ export async function publishKanbanCard(
     deleted: input.deleted ?? false,
   });
 }
+
+/** One board column (`kind:40111`). */
+export type KanbanBoardColumn = { id: string; label: string };
+
+export type KanbanBoardConfig = {
+  columns: KanbanBoardColumn[];
+  /** `true` when the channel has no board event and these are the defaults. */
+  isDefault: boolean;
+};
+
+type RawKanbanBoardResponse = {
+  columns: KanbanBoardColumn[];
+  is_default: boolean;
+};
+
+/** Get a channel's Kanban column list (or the built-in defaults). */
+export async function getChannelKanbanBoard(
+  channelId: string,
+): Promise<KanbanBoardConfig> {
+  const res = await invokeTauri<RawKanbanBoardResponse>(
+    "get_channel_kanban_board",
+    { channelId },
+  );
+  return { columns: res.columns, isDefault: res.is_default };
+}
+
+/** Publish a `kind:40111` board configuration (full column list, in order). */
+export async function publishKanbanBoard(
+  channelId: string,
+  columns: KanbanBoardColumn[],
+): Promise<string> {
+  return invokeTauri<string>("publish_kanban_board", { channelId, columns });
+}

@@ -331,6 +331,21 @@ pub struct KanbanCardsResponse {
     pub cards: Vec<KanbanCardInfo>,
 }
 
+/// One column of a NIP-KB `kind:40111` board configuration.
+#[derive(Serialize, Deserialize)]
+pub struct KanbanBoardColumnInfo {
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct KanbanBoardResponse {
+    pub columns: Vec<KanbanBoardColumnInfo>,
+    /// `true` when the channel has no `kind:40111` event and these are the
+    /// built-in defaults.
+    pub is_default: bool,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct ForumThreadReplyInfo {
     pub event_id: String,

@@ -3,7 +3,7 @@ import { Check, ChevronsUpDown, Trash2 } from "lucide-react";
 
 import { resolveUserLabel } from "@/features/profile/lib/identity";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
-import type { KanbanCard } from "@/shared/api/kanban";
+import type { KanbanBoardColumn, KanbanCard } from "@/shared/api/kanban";
 import type { ChannelMember } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
@@ -24,16 +24,10 @@ import {
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
 
-import {
-  KANBAN_COLUMN_LABEL,
-  KANBAN_COLUMNS,
-  type KanbanColumnId,
-} from "@/features/kanban/lib/position";
-
 export type CardEditorSubmit = {
   title: string;
   description: string;
-  column: KanbanColumnId;
+  column: string;
   assignee: string | null;
 };
 
@@ -42,7 +36,9 @@ type CardEditorDialogProps = {
   onOpenChange: (open: boolean) => void;
   /** Existing card when editing; `null` when creating. */
   card: KanbanCard | null;
-  defaultColumn: KanbanColumnId;
+  /** The channel's current board columns, in display order. */
+  columns: KanbanBoardColumn[];
+  defaultColumn: string;
   members: ChannelMember[];
   profiles?: UserProfileLookup;
   currentPubkey?: string;
@@ -57,6 +53,7 @@ export function CardEditorDialog({
   open,
   onOpenChange,
   card,
+  columns,
   defaultColumn,
   members,
   profiles,
@@ -68,7 +65,7 @@ export function CardEditorDialog({
 }: CardEditorDialogProps) {
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
-  const [column, setColumn] = React.useState<KanbanColumnId>(defaultColumn);
+  const [column, setColumn] = React.useState<string>(defaultColumn);
   const [assignee, setAssignee] = React.useState<string | null>(null);
 
   // Reset the form each time the dialog opens.
@@ -76,11 +73,11 @@ export function CardEditorDialog({
     if (!open) return;
     setTitle(card?.title ?? "");
     setDescription(card?.description ?? "");
-    setColumn(
-      ((card?.column as KanbanColumnId) || defaultColumn) as KanbanColumnId,
-    );
+    setColumn(card?.column || defaultColumn);
     setAssignee(card?.assignee ?? null);
   }, [open, card, defaultColumn]);
+
+  const columnLabel = columns.find((c) => c.id === column)?.label ?? column;
 
   const assigneeLabel = React.useMemo(() => {
     if (!assignee) return "Unassigned";
@@ -158,23 +155,27 @@ export function CardEditorDialog({
                 <DropdownMenuTrigger asChild>
                   <Button
                     className="justify-between font-normal"
+                    data-testid="kanban-card-column"
                     type="button"
                     variant="outline"
                   >
-                    {KANBAN_COLUMN_LABEL[column]}
-                    <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                    <span className="truncate">{columnLabel}</span>
+                    <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
-                  {KANBAN_COLUMNS.map((id) => (
-                    <DropdownMenuItem key={id} onClick={() => setColumn(id)}>
+                  {columns.map((col) => (
+                    <DropdownMenuItem
+                      key={col.id}
+                      onClick={() => setColumn(col.id)}
+                    >
                       <Check
                         className={cn(
                           "mr-2 h-4 w-4",
-                          column === id ? "opacity-100" : "opacity-0",
+                          column === col.id ? "opacity-100" : "opacity-0",
                         )}
                       />
-                      {KANBAN_COLUMN_LABEL[id]}
+                      <span className="truncate">{col.label}</span>
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>

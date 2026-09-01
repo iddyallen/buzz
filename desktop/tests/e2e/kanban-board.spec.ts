@@ -74,6 +74,48 @@ test.describe("kanban board", () => {
     ).toHaveCount(0);
   });
 
+  test("adds, renames and deletes columns", async ({ page }) => {
+    await installMockBridge(page);
+    await openBoard(page);
+
+    // Default three columns.
+    for (const label of ["To do", "Doing", "Done"]) {
+      await expect(
+        page.getByRole("heading", { name: new RegExp(`^${label}`) }),
+      ).toBeVisible();
+    }
+
+    // Add a column.
+    await page.getByTestId("kanban-add-column").click();
+    await page.getByTestId("kanban-column-name").fill("In review");
+    await page.getByTestId("kanban-column-save").click();
+    const inReview = page.getByTestId("kanban-column-in-review");
+    await expect(inReview).toBeVisible();
+
+    // A card can be created directly into the new column.
+    await inReview.getByTestId("kanban-add-in-review").click();
+    await page.getByTestId("kanban-card-title").fill("Review the PR");
+    await page.getByTestId("kanban-card-save").click();
+    await expect(inReview.getByTestId("kanban-card")).toHaveText(
+      /Review the PR/,
+    );
+
+    // Rename it.
+    await page.getByTestId("kanban-column-menu-in-review").click();
+    await page.getByRole("menuitem", { name: "Rename" }).click();
+    await page.getByTestId("kanban-column-name").fill("QA");
+    await page.getByTestId("kanban-column-save").click();
+    await expect(page.getByRole("heading", { name: /^QA/ })).toBeVisible();
+
+    // Delete it — its card falls into the Unsorted bucket, not lost.
+    await page.getByTestId("kanban-column-menu-in-review").click();
+    await page.getByRole("menuitem", { name: "Delete column" }).click();
+    await expect(page.getByTestId("kanban-column-in-review")).toHaveCount(0);
+    await expect(
+      page.getByTestId("kanban-column-unsorted").getByTestId("kanban-card"),
+    ).toHaveText(/Review the PR/);
+  });
+
   test("creates a card from a chat message", async ({ page }) => {
     await installMockBridge(page);
     await page.goto("/");
