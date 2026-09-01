@@ -49,16 +49,15 @@ hosts = []
 if primary:
     hosts.append(primary)
 
-# `buzz_core::tenant::normalize_host` collapses every loopback spelling
-# (`localhost`, `127.0.0.1`, `[::1]`, with or without port) to a single
-# canonical `127.0.0.1[:port]` authority, so a desktop on `localhost:3000` and
-# an agent whose relay URL was normalized to `127.0.0.1:3000` resolve to the
-# SAME community. Seed only that canonical form — seeding the other spellings
-# would create rows no request ever resolves to.
-if host in {"localhost", "127.0.0.1", "[::1]", "::1"}:
-    hosts = ["127.0.0.1"]
+# Local desktop/dev tooling has historically used both localhost and 127.0.0.1,
+# and some HTTP clients can omit the default/non-default port in Host handling.
+# Under row-zero host binding these are distinct hosts, so seed loopback aliases
+# for local dev to avoid a fail-closed 404 when one side uses an alternate
+# authority. Non-loopback deployments seed only RELAY_URL's authority.
+if host in {"localhost", "127.0.0.1"}:
+    hosts.extend(["localhost", "127.0.0.1"])
     if port:
-        hosts.append(f"127.0.0.1:{port}")
+        hosts.extend([f"localhost:{port}", f"127.0.0.1:{port}"])
 
 seen = []
 for h in hosts:
