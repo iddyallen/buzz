@@ -134,6 +134,33 @@ pub fn normalize_host(host: &str) -> String {
     if let Some(stripped) = host.strip_suffix('.') {
         host = stripped.to_string();
     }
+    // Loopback spellings are one tenant identity — the same rule
+    // [`crate::relay::normalize_relay_url`] applies to client relay URLs.
+    // `localhost`, `127.0.0.1`, and the IPv6 literal `[::1]` / `::1` all bind
+    // to the single local-dev community, preserving an explicit non-default
+    // port. Without this, a desktop connected as `localhost:3000` and an agent
+    // whose `BUZZ_RELAY_URL` was normalized to `127.0.0.1:3000` land in two
+    // different communities and never see each other's channels.
+    let (loopback_host, port) = match host.strip_prefix('[') {
+        Some(rest) => match rest.find(']') {
+            Some(end) => {
+                let addr = &host[..end + 2];
+                let port = host[end + 2..].strip_prefix(':');
+                (addr, port)
+            }
+            None => (host.as_str(), None),
+        },
+        None => match host.rsplit_once(':') {
+            Some((h, p)) if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) => (h, Some(p)),
+            _ => (host.as_str(), None),
+        },
+    };
+    if matches!(loopback_host, "localhost" | "127.0.0.1" | "[::1]" | "::1") {
+        host = match port {
+            Some(p) => format!("127.0.0.1:{p}"),
+            None => "127.0.0.1".to_string(),
+        };
+    }
     host
 }
 
@@ -219,10 +246,31 @@ mod tests {
     }
 
     #[test]
-    fn normalize_host_leaves_ipv6_literal_intact() {
-        // IPv6 literals contain colons but no trailing default-port suffix.
-        assert_eq!(normalize_host("[::1]"), "[::1]");
-        assert_eq!(normalize_host("[::1]:443"), "[::1]");
+    fn normalize_host_leaves_non_loopback_ipv6_literal_intact() {
+        // A non-loopback IPv6 literal contains colons but no default-port
+        // suffix and must not be rewritten.
+        assert_eq!(normalize_host("[2001:db8::1]"), "[2001:db8::1]");
+        assert_eq!(normalize_host("[2001:db8::1]:443"), "[2001:db8::1]");
+        assert_eq!(normalize_host("[2001:db8::1]:8443"), "[2001:db8::1]:8443");
+    }
+
+    #[test]
+    fn normalize_host_collapses_loopback_spellings() {
+        // localhost / 127.0.0.1 / [::1] are one tenant identity, matching
+        // `normalize_relay_url`. Non-default port is preserved.
+        for variant in ["localhost", "127.0.0.1", "[::1]", "LocalHost"] {
+            assert_eq!(normalize_host(variant), "127.0.0.1", "variant {variant:?}");
+        }
+        for variant in ["localhost:3000", "127.0.0.1:3000", "[::1]:3000"] {
+            assert_eq!(
+                normalize_host(variant),
+                "127.0.0.1:3000",
+                "variant {variant:?}"
+            );
+        }
+        // Default ports still collapse away first, then the host canonicalizes.
+        assert_eq!(normalize_host("localhost:80"), "127.0.0.1");
+        assert_eq!(normalize_host("[::1]:443"), "127.0.0.1");
     }
 
     #[test]
@@ -235,9 +283,11 @@ mod tests {
     #[test]
     fn relay_url_authority_keeps_explicit_nondefault_port() {
         // The default dev seed: startup, bind_deployment_community, and
-        // buzz-admin must all derive `localhost:3000` (NOT bare `localhost`),
-        // or the admin lookup misses the community startup seeded.
-        assert_eq!(relay_url_authority("ws://localhost:3000"), "localhost:3000");
+        // buzz-admin must all derive the same authority, WITH the explicit
+        // non-default port. Loopback host canonicalizes to `127.0.0.1` (see
+        // `normalize_host_collapses_loopback_spellings`) so a desktop on
+        // `localhost:3000` and an agent on `127.0.0.1:3000` share one tenant.
+        assert_eq!(relay_url_authority("ws://localhost:3000"), "127.0.0.1:3000");
         assert_eq!(
             relay_url_authority("wss://relay.example:8443"),
             "relay.example:8443"
@@ -262,8 +312,13 @@ mod tests {
     #[test]
     fn relay_url_authority_preserves_ipv6_brackets() {
         // `host_str()` strips IPv6 brackets and the port; `relay_url_authority`
-        // must keep both so the authority matches `communities.host`.
-        assert_eq!(relay_url_authority("ws://[::1]:3000"), "[::1]:3000");
+        // must keep both so the authority matches `communities.host` — for a
+        // non-loopback literal. The loopback `[::1]` collapses to `127.0.0.1`.
+        assert_eq!(
+            relay_url_authority("wss://[2001:db8::1]:3000"),
+            "[2001:db8::1]:3000"
+        );
+        assert_eq!(relay_url_authority("ws://[::1]:3000"), "127.0.0.1:3000");
     }
 
     #[test]

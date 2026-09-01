@@ -361,7 +361,11 @@ mod tests {
 
     #[test]
     fn host_valid_with_port() {
-        assert!(validate_host("localhost:3000").is_ok());
+        // Loopback canonicalizes to 127.0.0.1 (see buzz-core
+        // normalize_host_collapses_loopback_spellings), so `localhost:3000`
+        // is no longer in normalized form — the canonical local host is.
+        assert!(validate_host("127.0.0.1:3000").is_ok());
+        assert!(validate_host("localhost:3000").is_err());
     }
 
     #[test]
@@ -421,7 +425,10 @@ mod tests {
 
     #[test]
     fn host_accepts_ipv6_bracket_literal() {
-        assert!(validate_host("[::1]:3000").is_ok());
+        // A non-loopback IPv6 literal is accepted as-is; the loopback `[::1]`
+        // canonicalizes to 127.0.0.1 and so is not itself normalized.
+        assert!(validate_host("[2001:db8::1]:3000").is_ok());
+        assert!(validate_host("[::1]:3000").is_err());
     }
 
     #[test]
