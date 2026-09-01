@@ -542,6 +542,29 @@ pub fn build_set_canvas(channel_id: Uuid, content: &str) -> Result<EventBuilder,
     Ok(EventBuilder::new(Kind::Custom(40100), content).tags(tags))
 }
 
+/// Build a NIP-KB Kanban card event (kind 40110) from a validated
+/// [`buzz_core::kanban::KanbanCard`]. The full desired state is emitted; the
+/// relay/clients keep the newest version per `d` (last-write-wins).
+pub fn build_kanban_card(card: &buzz_core::kanban::KanbanCard) -> Result<EventBuilder, SdkError> {
+    let tags = card
+        .to_tag_rows()
+        .into_iter()
+        .map(|row| Tag::parse(row).map_err(|e| SdkError::InvalidTag(e.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(EventBuilder::new(Kind::Custom(40110), &card.description).tags(tags))
+}
+
+/// Build a NIP-KB Kanban board (column list) event (kind 40111). Validates the
+/// column list before emitting.
+pub fn build_kanban_board(
+    board: &buzz_core::kanban::KanbanBoard,
+) -> Result<EventBuilder, SdkError> {
+    buzz_core::kanban::KanbanBoard::validate_columns(&board.columns)
+        .map_err(|e| SdkError::InvalidInput(e.to_string()))?;
+    let tags = vec![tag(&["h", &board.channel_id.to_string()])?];
+    Ok(EventBuilder::new(Kind::Custom(40111), board.to_content()).tags(tags))
+}
+
 /// Build a NIP-01 profile metadata event (kind 0).
 ///
 /// Only present (Some) fields are included in the JSON object.

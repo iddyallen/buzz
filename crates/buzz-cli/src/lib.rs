@@ -186,6 +186,9 @@ enum Cmd {
     /// Get and set channel canvas documents
     #[command(subcommand)]
     Canvas(CanvasCmd),
+    /// Read and update a channel's Kanban board (NIP-KB)
+    #[command(subcommand)]
+    Kanban(KanbanCmd),
     /// Add, remove, and list emoji reactions
     #[command(subcommand)]
     Reactions(ReactionsCmd),
@@ -730,6 +733,86 @@ pub enum CanvasCmd {
         /// Canvas content (markdown; use '-' to read from stdin)
         #[arg(long)]
         content: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum KanbanCmd {
+    /// Print the channel's Kanban columns as JSON (defaults if none set)
+    Board {
+        /// Channel UUID
+        #[arg(long)]
+        channel: String,
+    },
+    /// Replace the channel's Kanban columns
+    SetColumns {
+        /// Channel UUID
+        #[arg(long)]
+        channel: String,
+        /// Comma-separated `id:Label` pairs in display order,
+        /// e.g. `todo:To do,doing:Doing,done:Done`. `id` is a
+        /// `[a-z0-9_-]` slug; if `:Label` is omitted the id is the label.
+        #[arg(long)]
+        columns: String,
+    },
+    /// List the live cards on the board as a JSON array
+    List {
+        /// Channel UUID
+        #[arg(long)]
+        channel: String,
+        /// Only cards in this column id
+        #[arg(long)]
+        column: Option<String>,
+    },
+    /// Create a card (appended to the end of its column)
+    Add {
+        /// Channel UUID
+        #[arg(long)]
+        channel: String,
+        /// Card title
+        #[arg(long)]
+        title: String,
+        /// Card description (use '-' to read from stdin)
+        #[arg(long)]
+        description: Option<String>,
+        /// Column id (default: the board's first column)
+        #[arg(long)]
+        column: Option<String>,
+        /// Assignee pubkey (64-char hex); pass `me` for yourself
+        #[arg(long)]
+        assignee: Option<String>,
+        /// Link the card to a source message (64-char hex event id)
+        #[arg(long)]
+        message: Option<String>,
+    },
+    /// Update an existing card. Only the flags you pass change; changing
+    /// `--column` appends the card to the end of the new column.
+    Set {
+        /// Channel UUID
+        #[arg(long)]
+        channel: String,
+        /// Card UUID (the `card_id` from `kanban list`)
+        #[arg(long)]
+        card: String,
+        #[arg(long)]
+        title: Option<String>,
+        /// Description (use '-' to read from stdin)
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        column: Option<String>,
+        /// Assignee pubkey (64-char hex), `me`, or `none` to unassign
+        #[arg(long)]
+        assignee: Option<String>,
+    },
+    /// Delete a card (publishes a tombstone)
+    Rm {
+        /// Channel UUID
+        #[arg(long)]
+        channel: String,
+        /// Card UUID
+        #[arg(long)]
+        card: String,
     },
 }
 
@@ -2078,6 +2161,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Messages(sub) => commands::messages::dispatch(sub, &client, &cli.format).await,
         Cmd::Channels(sub) => commands::channels::dispatch(sub, &client, &cli.format).await,
         Cmd::Canvas(sub) => commands::channels::dispatch_canvas(sub, &client).await,
+        Cmd::Kanban(sub) => commands::kanban::dispatch(sub, &client).await,
         Cmd::Reactions(sub) => commands::reactions::dispatch(sub, &client).await,
         Cmd::Emoji(sub) => commands::emoji::dispatch(sub, &client).await,
         Cmd::Dms(sub) => commands::dms::dispatch(sub, &client).await,
@@ -2230,6 +2314,7 @@ mod tests {
             "emoji",
             "feed",
             "issues",
+            "kanban",
             "media",
             "mem",
             "messages",
