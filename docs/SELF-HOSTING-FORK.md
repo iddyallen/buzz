@@ -28,8 +28,23 @@ So the deployment is: **fork relay image + fork desktop client + your DNS**.
 - A Linux host with Docker + Docker Compose v2.24.4+ and a public IP.
 - A DNS name pointing at it, e.g. `chait.example.com` (A/AAAA record).
 - Ports 80 and 443 open (Caddy terminates TLS and gets a Let's Encrypt cert).
-- This repo checked out at the fork branch on a build machine (can be the same
-  host) with the Rust + Node toolchain, or just Docker to build the image.
+- **The fork source.** The Kanban work lives on branch **`feat/file-storage`**
+  of the operator's GitHub fork **`https://github.com/iddyallen/buzz`**
+  (`origin`; `upstream` is `block/buzz`). Push the branch once so it is
+  fetchable:
+  ```bash
+  git push origin feat/file-storage
+  ```
+  Then on the build machine:
+  ```bash
+  git clone https://github.com/iddyallen/buzz.git
+  cd buzz && git checkout feat/file-storage
+  ```
+  If the branch is not pushed, hand over a bundle instead
+  (`git bundle create chait.bundle feat/file-storage`) and
+  `git clone chait.bundle`. Everything below runs from this checkout.
+- A build machine (can be the deployment host) with Docker; Rust + Node are
+  only needed if you also build the desktop client there.
 - A Nostr keypair for the **relay owner** (the human who owns the community).
   Generate one and keep the nsec safe:
   ```bash
